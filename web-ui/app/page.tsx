@@ -1,6 +1,7 @@
 'use client';
 
 import RoomJoiner from "@/app/components/room-joiner";
+import assert from "assert";
 import {MutableRefObject, useEffect, useRef, useState} from "react";
 import {v4 as uuidv4} from "uuid";
 
@@ -19,27 +20,29 @@ enum MessageType {
     ICE_CANDIDATE = "ICECandidate"
 }
 
-interface SignalingMessage {
+interface AbstractSignalingMessage {
     type: MessageType
 }
 
-interface OfferSignalingMessage extends SignalingMessage {
+interface OfferSignalingMessage extends AbstractSignalingMessage {
     type: MessageType.OFFER,
     user_id: string,
     description: RTCSessionDescription
 }
 
-interface AnswerSignalingMessage extends SignalingMessage {
+interface AnswerSignalingMessage extends AbstractSignalingMessage {
     type: MessageType.ANSWER,
     user_id: string,
     description: RTCSessionDescription
 }
 
-interface ICECandidateSignalingMessage extends SignalingMessage {
+interface ICECandidateSignalingMessage extends AbstractSignalingMessage {
     type: MessageType.ICE_CANDIDATE,
     user_id: string,
     candidate: RTCIceCandidate
 }
+
+type SignalingMessage = OfferSignalingMessage | AnswerSignalingMessage | ICECandidateSignalingMessage;
 
 export default function App() {
     const [userId, setUserId] = useState(uuidv4());
@@ -51,9 +54,9 @@ export default function App() {
     let peerConnection: RTCPeerConnection | null = null;
 
     function createPeerConnection(localMediaStream: MediaStream, socket: WebSocket) {
-        peerConnection = new RTCPeerConnection();
+        const peerConnection = new RTCPeerConnection();
         localMediaStream.getTracks().forEach(
-            track => peerConnection?.addTrack(track, localMediaStream)
+            track => peerConnection.addTrack(track, localMediaStream)
         );
         peerConnection.ontrack = ({track, streams}) => {
             console.log(`Received new track ${track.id}`)
@@ -63,10 +66,7 @@ export default function App() {
                     !streams.some(stream => stream.id === previousVideo.id)
                 )
             ]);
-            if (streams.length > 1) {
-                // Sanity check: this should never happen?
-                throw new Error('Multiple streams received');
-            }
+            assert(streams.length <= 1, 'Multiple streams received');
             let stream = streams[0];
             stream.onremovetrack = ({track}) => {
                 console.log(`Track ${track.id} was removed`);
@@ -77,18 +77,14 @@ export default function App() {
             };
         };
         peerConnection.onnegotiationneeded = async () => {
-            try {
-                await peerConnection?.setLocalDescription();
-                const message: OfferSignalingMessage = {
-                    type: MessageType.OFFER,
-                    user_id: userId,
-                    description: peerConnection?.localDescription!
-                };
-                socket.send(JSON.stringify(message));
-                console.log('Sent offer');
-            } catch (err) {
-                console.error(err);
-            }
+            await peerConnection.setLocalDescription();
+            const message: OfferSignalingMessage = {
+                type: MessageType.OFFER,
+                user_id: userId,
+                description: peerConnection?.localDescription!
+            };
+            socket.send(JSON.stringify(message));
+            console.log('Sent offer');
         };
         peerConnection.onicecandidate = ({candidate}) => {
             if (candidate !== null) {
@@ -101,11 +97,50 @@ export default function App() {
             }
         }
         peerConnection.oniceconnectionstatechange = () => {
-            if (peerConnection?.iceConnectionState === 'failed') {
-                peerConnection?.restartIce();
+            if (peerConnection.iceConnectionState === 'failed') {
+                peerConnection.restartIce();
             }
         };
         return peerConnection;
+    }
+
+    async function handleSignalingMessage(message: SignalingMessage, socket: WebSocket) {
+        if (peerConnection === null) {
+            console.warn('Peer connection not created yet, skipping message');
+            return;
+        }
+        switch (message.type) {
+            case MessageType.ANSWER:
+                console.log('Received answer')
+                await peerConnection.setRemoteDescription(
+                    new RTCSessionDescription(message.description)
+                );
+                break;
+            case MessageType.OFFER:
+                console.log('Received offer')
+                await peerConnection.setRemoteDescription(
+                    new RTCSessionDescription(message.description)
+                );
+                let answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                const signaling_message: AnswerSignalingMessage = {
+                    type: MessageType.ANSWER,
+                    user_id: userId,
+                    description: peerConnection.localDescription!
+                };
+                socket.send(JSON.stringify(signaling_message));
+                console.log('Sent answer');
+                break;
+            case MessageType.ICE_CANDIDATE:
+                console.log('Received ICECandidate')
+                peerConnection.addIceCandidate(
+                    new RTCIceCandidate(message.candidate)
+                );
+                break;
+            default:
+                console.warn('Unknown message, skipping message');
+                break;
+        }
     }
 
     function onJoinCallback(roomId: string) {
@@ -116,40 +151,19 @@ export default function App() {
 
                 const socket = new WebSocket(getRoomUrl(roomId));
                 socket.onmessage = async (event) => {
-                    if (peerConnection !== null) {
-                        const message = JSON.parse(event.data);
-                        if (message.type == MessageType.ANSWER) {
-                            console.log('Received answer')
-                            await peerConnection.setRemoteDescription(
-                                new RTCSessionDescription(message.description)
-                            );
-                        }
-                        if (message.type == MessageType.OFFER) {
-                            console.log('Received offer as negotiation is needed')
-                            await peerConnection.setRemoteDescription(
-                                new RTCSessionDescription(message.description)
-                            );
-                            let answer = await peerConnection?.createAnswer();
-                            await peerConnection?.setLocalDescription(answer);
-                            const signaling_message: AnswerSignalingMessage = {
-                                type: MessageType.ANSWER,
-                                user_id: userId,
-                                description: peerConnection?.localDescription!
-                            };
-                            socket.send(JSON.stringify(signaling_message));
-                            console.log('Sent answer');
-                        }
-                        if (message.type == MessageType.ICE_CANDIDATE) {
-                            console.log('Received ICECandidate')
-                            peerConnection.addIceCandidate(
-                                new RTCIceCandidate(message.candidate)
-                            );
-                        }
-                    }
+                    await handleSignalingMessage(JSON.parse(event.data), socket);
                 }
                 socket.onopen = (_) => {
                     if (socket.readyState === WebSocket.OPEN && peerConnection === null) {
-                        createPeerConnection(localMediaStream, socket);
+                        peerConnection = createPeerConnection(localMediaStream, socket);
+                        console.log('Peer connection created, socket opened');
+                    }
+                };
+                socket.onclose = (_) => {
+                    if (socket.readyState === WebSocket.CLOSED && peerConnection !== null) {
+                        peerConnection.close();
+                        peerConnection = null;
+                        console.log('Peer connection closed, socket closed');
                     }
                 };
             });
