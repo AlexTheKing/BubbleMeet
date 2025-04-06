@@ -20,26 +20,30 @@ pub mod webrtc_api_factory;
 use crate::models::room::Room;
 use crate::sfu::SelectiveForwardingUnit;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct AppState {
     rooms: Arc<Mutex<HashMap<String, Arc<Mutex<Room>>>>>,
-    sfu: Arc<Mutex<SelectiveForwardingUnit>>,
 }
 
+struct RoomIsNotEmptyError();
+
 impl AppState {
-    fn new() -> AppState {
-        AppState {
-            rooms: Arc::new(Mutex::new(HashMap::new())),
-            sfu: Arc::new(Mutex::new(SelectiveForwardingUnit::new())),
+    async fn get_room(&self, room_id: &str) -> Arc<Mutex<Room>> {
+        let mut rooms_lock = self.rooms.lock().await;
+        if !rooms_lock.contains_key(room_id) {
+            rooms_lock.insert(room_id.to_string(), Default::default());
         }
+        rooms_lock.get(room_id).unwrap().clone()
     }
 
-    async fn get_room(&self, room_id: String) -> Arc<Mutex<Room>> {
-        let mut rooms = self.rooms.lock().await;
-        if !rooms.contains_key(&room_id) {
-            rooms.insert(room_id.clone(), Arc::new(Mutex::new(Room::new())));
+    async fn try_remove_room(&self, room_id: &str) -> Result<(), RoomIsNotEmptyError> {
+        let mut rooms_lock = self.rooms.lock().await;
+        if rooms_lock.is_empty() {
+            rooms_lock.remove(room_id);
+            Ok(())
+        } else {
+            Err(RoomIsNotEmptyError())
         }
-        rooms.get(&room_id).unwrap().clone()
     }
 }
 
@@ -51,43 +55,37 @@ async fn websocket_handler(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     println!(
-        "Received connect from ip={} to room_id={} ",
-        addr.ip(),
-        room_id,
+        "Received connect from ip={} to room_id={room_id}",
+        addr.ip()
     );
-    let room = state.get_room(room_id).await;
-    let sfu = state.sfu.clone();
-    ws.on_upgrade(move |socket| handle_socket(socket, addr, room, sfu))
+    ws.on_upgrade(move |socket| handle_socket(socket, state, room_id))
 }
 
-async fn handle_socket(
-    socket: WebSocket,
-    _: SocketAddr,
-    room: Arc<Mutex<Room>>,
-    sfu: Arc<Mutex<SelectiveForwardingUnit>>,
-) {
+async fn handle_socket(socket: WebSocket, state: AppState, room_id: String) {
     let (sender, mut receiver) = socket.split();
     let sender = Arc::new(Mutex::new(sender));
-    while let Some(Ok(ws_message)) = receiver.next().await {
-        if let Message::Text(text) = ws_message {
-            sfu.lock()
-                .await
-                .process_signaling_message(
-                    serde_json::from_str(&text).expect("Cannot parse websocket message"),
-                    sender.clone(),
-                    &room,
-                )
-                .await
+    let room = state.get_room(&room_id).await;
+    while let Some(Ok(message)) = receiver.next().await {
+        if let Message::Text(text) = message {
+            SelectiveForwardingUnit::process_signaling_message(
+                serde_json::from_str(&text).expect("Cannot parse websocket message"),
+                sender.clone(),
+                &room,
+            )
+            .await
         }
     }
-    println!("Websocket connection closed!");
+    match state.try_remove_room(&room_id).await {
+        Ok(_) => println!("Removed room={room_id}"),
+        Err(_) => println!("Websocket connection closed, but room={room_id} is not empty"),
+    }
 }
 
 #[tokio::main]
 async fn main() {
     let app = Router::new()
         .route("/rooms/:room_id", any(websocket_handler))
-        .with_state(AppState::new());
+        .with_state(AppState::default());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await.unwrap();
 

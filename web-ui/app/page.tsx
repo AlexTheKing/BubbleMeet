@@ -56,15 +56,25 @@ export default function App() {
             track => peerConnection?.addTrack(track, localMediaStream)
         );
         peerConnection.ontrack = ({track, streams}) => {
-            console.log('Received new track and streams of length:', streams.length)
-            console.log('Track', track)
-            console.log('Streams', streams)
+            console.log(`Received new track ${track.id}`)
             setRemoteVideos((previousVideos) => [
                 ...streams,
                 ...previousVideos.filter(previousVideo => 
                     !streams.some(stream => stream.id === previousVideo.id)
                 )
             ]);
+            if (streams.length > 1) {
+                // Sanity check: this should never happen?
+                throw new Error('Multiple streams received');
+            }
+            let stream = streams[0];
+            stream.onremovetrack = ({track}) => {
+                console.log(`Track ${track.id} was removed`);
+                if (!stream.getTracks().length) {
+                  setRemoteVideos((previousVideos) => previousVideos.filter(previousVideo => previousVideo.id !== stream.id));
+                  console.log(`Stream ${stream.id} was removed`);
+                }
+            };
         };
         peerConnection.onnegotiationneeded = async () => {
             try {
@@ -75,7 +85,7 @@ export default function App() {
                     description: peerConnection?.localDescription!
                 };
                 socket.send(JSON.stringify(message));
-                console.log("Sent offer");
+                console.log('Sent offer');
             } catch (err) {
                 console.error(err);
             }
@@ -91,7 +101,7 @@ export default function App() {
             }
         }
         peerConnection.oniceconnectionstatechange = () => {
-            if (peerConnection?.iceConnectionState === "failed") {
+            if (peerConnection?.iceConnectionState === 'failed') {
                 peerConnection?.restartIce();
             }
         };
@@ -109,13 +119,13 @@ export default function App() {
                     if (peerConnection !== null) {
                         const message = JSON.parse(event.data);
                         if (message.type == MessageType.ANSWER) {
-                            console.log("Received answer!")
+                            console.log('Received answer')
                             await peerConnection.setRemoteDescription(
                                 new RTCSessionDescription(message.description)
                             );
                         }
                         if (message.type == MessageType.OFFER) {
-                            console.log("Received offer as negotiation is needed!")
+                            console.log('Received offer as negotiation is needed')
                             await peerConnection.setRemoteDescription(
                                 new RTCSessionDescription(message.description)
                             );
@@ -127,13 +137,13 @@ export default function App() {
                                 description: peerConnection?.localDescription!
                             };
                             socket.send(JSON.stringify(signaling_message));
-                            console.log("Sent answer!");
+                            console.log('Sent answer');
                         }
                         if (message.type == MessageType.ICE_CANDIDATE) {
+                            console.log('Received ICECandidate')
                             peerConnection.addIceCandidate(
                                 new RTCIceCandidate(message.candidate)
                             );
-                            console.log("Received ICECandidate, added it!")
                         }
                     }
                 }
