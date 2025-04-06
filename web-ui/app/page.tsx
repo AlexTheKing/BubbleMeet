@@ -103,10 +103,6 @@ export default function App() {
             .getUserMedia({video: true, audio: true})
             .then((localMediaStream) => {
                 setLocalMediaStream(localMediaStream);
-                // if (localVideoRef.current === null) {
-                    // throw new Error("Cannot access local video element!");
-                // }
-                // localVideoRef.current.srcObject = localMediaStream;
 
                 const socket = new WebSocket(getRoomUrl(roomId));
                 socket.onmessage = async (event) => {
@@ -150,73 +146,59 @@ export default function App() {
         setRoomJoinerShown(false);
     }
 
-    function getLocalVideoRefCallback() {
+    function getVideoRefCallback(videoStream: MediaStream | null): ((ref: HTMLVideoElement) => void) {
         return (ref: HTMLVideoElement) => {
-            if (ref) {
-                ref.srcObject = localMediaStream;
+            if (ref && videoStream !== null) {
+                ref.srcObject = videoStream;
                 ref.onloadedmetadata = () => ref.play();
             }
         }
     }
 
-    function getVideoGrid() {
+    function buildVideoGrid() {
         const videosParams = remoteVideos.map<[boolean, string, ((ref: HTMLVideoElement) => void)]>((videoStream, index) => [
             false,
             `${videoStream.id}-${index}`,
-            (ref: HTMLVideoElement) => {
-                if (ref) {
-                    ref.srcObject = videoStream;
-                    ref.onloadedmetadata = () => ref.play();
-                }
-            }
+            getVideoRefCallback(videoStream)
         ]);
 
-        videosParams.push([true, "local", getLocalVideoRefCallback()]);
+        videosParams.push([true, "local", getVideoRefCallback(localMediaStream)]);
 
         return videosParams.map(
             ([isMuted, key, ref], index) => {
-                console.log(index, key);
-                let widthClass = "w-full"; // Default full width
-                let heightClass = "h-full"; // Default full height
+                let widthClass = "w-full";
+                let heightClass = "h-full";
                 const totalVideos = videosParams.length;
                 if (totalVideos === 2) {
-                    widthClass = "w-[calc(50%-0.5rem)]"; // 2 users in a single row, accounting for gap
-                } else if (totalVideos === 3) {
-                    widthClass = index < 2 ? "w-[calc(50%-0.5rem)]" : "w-full"; // 2 users - 1 row pattern
-                    heightClass = index < 2 ? "h-[calc(50%-0.5rem)]" : "h-[calc(50%-0.5rem)]"; // Adjust height for 2-1 pattern
-                } else if (totalVideos === 4) {
-                    widthClass = "w-[calc(50%-0.5rem)]"; // 2 users - 2 rows pattern
-                    heightClass = "h-[calc(50%-0.5rem)]"; 
+                    widthClass = "w-[calc(50%-0.5rem)]";
+                } else if (totalVideos === 3 || totalVideos === 4) {
+                    widthClass = "w-[calc(50%-0.5rem)]";
+                    heightClass = "h-[calc(50%-0.5rem)]";
                 } else if (totalVideos === 5) {
-                    widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : "w-[calc(50%-0.5rem)]"; // 3-1, 2-2 pattern
-                    heightClass = index < 3 ? "h-[calc(33.3%-0.66rem)]" : "h-[calc(50%-0.5rem)]";
-                } else if (totalVideos === 6) {
-                    widthClass = "w-[calc(33.3%-0.66rem)]"; // 3-1, 3-2 pattern
-                    heightClass = "h-[calc(33.3%-0.66rem)]";
-                } else if (totalVideos === 7) {
-                    widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : (index < 6 ? "w-[calc(33.3%-0.66rem)]" : "w-full"); // 3-1, 3-2, 1-3 pattern
-                    heightClass = index < 3 ? "h-[calc(33.3%-0.66rem)]" : (index < 6 ? "h-[calc(33.3%-0.66rem)]" : "h-[calc(33.3%-0.66rem)]")
-                } else if (totalVideos === 8) {
-                    widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : (index < 6 ? "w-[calc(33.3%-0.66rem)]" : "w-[calc(50%-0.5rem)]"); // 3-1, 3-2, 2-3 pattern
-                    heightClass = index < 3 ? "h-[calc(33.3%-0.66rem)]" : (index < 6 ? "h-[calc(33.3%-0.66rem)]" : "h-[calc(50%-0.5rem)]");
-                } else if (totalVideos >= 9) {
-                    widthClass = "w-[calc(33.3%-0.66rem)]"; // 3-1, 3-2, 3-3 pattern
+                    widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : "w-[calc(50%-0.5rem)]";
+                    heightClass = "h-[calc(50%-0.5rem)]";
+                } else if (totalVideos >= 6 && totalVideos <= 9) {
+                    widthClass = "w-[calc(33.3%-0.66rem)]";
                     heightClass = "h-[calc(33.3%-0.66rem)]";
                 }
 
                 return (
-                    <div key={key} className={`relative aspect-video ${widthClass} ${heightClass} flex items-center justify-center`}>
-                        <video
-                            ref={ref}
-                            autoPlay={true}
-                            muted={isMuted}
-                            className="h-full object-cover rounded-lg"
-                        />
+                    <div key={key} className={`${widthClass} ${heightClass} flex items-center justify-center`}>
+                        <div className="relative w-full aspect-video overflow-hidden">
+                            <video
+                                ref={ref}
+                                autoPlay={true}
+                                muted={isMuted}
+                                className="absolute inset-0 w-full h-full object-cover rounded-lg"
+                            />
+                        </div>
                     </div>
                 );
             }
         )
     }
+
+    const oneOnOneView = remoteVideos.length === 1;
 
     return (
         <main className="bg-sky-900 text-white">
@@ -228,16 +210,12 @@ export default function App() {
             }
             <div id="videos" hidden={isRoomJoinerShown} className="h-screen relative">
                 {
-                    remoteVideos.length === 1 ? (
+                    oneOnOneView ? (
                         <>
                             <div className="h-screen w-full flex items-center justify-center">
                                 <div className="relative w-full aspect-video overflow-hidden">
                                     <video
-                                        ref={(ref) => {
-                                            if (ref) {
-                                                ref.srcObject = remoteVideos[0];
-                                            }
-                                        }}
+                                        ref={getVideoRefCallback(remoteVideos[0])}
                                         autoPlay={true}
                                         className="absolute inset-0 w-full h-full object-cover"
                                     />
@@ -246,7 +224,7 @@ export default function App() {
                             <div className="fixed bottom-4 right-4 w-64 h-48 rounded-lg overflow-hidden shadow-lg">
                                 <video
                                     id="local"
-                                    ref={getLocalVideoRefCallback()}
+                                    ref={getVideoRefCallback(localMediaStream)}
                                     autoPlay={true}
                                     muted={true}
                                     className="w-full h-full object-cover"
@@ -256,20 +234,11 @@ export default function App() {
                     ) : (
                         <div className="flex flex-wrap justify-center items-center h-screen p-4 gap-4">
                             {
-                                getVideoGrid()
+                                buildVideoGrid()
                             }
                         </div>
                     )
                 }
-                {/* <div className="fixed bottom-4 right-4 w-64 h-48 rounded-lg overflow-hidden shadow-lg">
-                    <video
-                        id="local"
-                        ref={localVideoRef}
-                        autoPlay={true}
-                        muted={true}
-                        className="w-full h-full object-cover"
-                    />
-                </div> */}
             </div>
         </main>
     );
