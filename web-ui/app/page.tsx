@@ -41,12 +41,10 @@ interface ICECandidateSignalingMessage extends SignalingMessage {
     candidate: RTCIceCandidate
 }
 
-type SignalingMessages = OfferSignalingMessage | AnswerSignalingMessage | ICECandidateSignalingMessage;
-
-
 export default function App() {
     const [userId, setUserId] = useState(uuidv4());
     const [isRoomJoinerShown, setRoomJoinerShown] = useState(true);
+    const [localMediaStream, setLocalMediaStream] = useState<MediaStream | null>(null);
     const localVideoRef: MutableRefObject<HTMLVideoElement | null> = useRef(null);
     const [remoteVideos, setRemoteVideos] = useState<MediaStream[]>([]);
 
@@ -111,18 +109,11 @@ export default function App() {
         navigator.mediaDevices
             .getUserMedia({video: true, audio: true})
             .then((localMediaStream) => {
-                if (localVideoRef.current === null) {
-                    throw new Error("Cannot access local video element!");
-                }
-                localVideoRef.current.srcObject = localMediaStream;
-
-                
-                // let streams = [];
-                // for (let i = 0; i < 10; i++) {
-                    // streams.push(localMediaStream)
+                setLocalMediaStream(localMediaStream);
+                // if (localVideoRef.current === null) {
+                    // throw new Error("Cannot access local video element!");
                 // }
-                // setRemoteVideos(streams);
-
+                // localVideoRef.current.srcObject = localMediaStream;
 
                 const socket = new WebSocket(getRoomUrl(roomId));
                 socket.onmessage = async (event) => {
@@ -157,13 +148,81 @@ export default function App() {
                         }
                     }
                 }
-                socket.onopen = (event) => {
+                socket.onopen = (_) => {
                     if (socket.readyState === WebSocket.OPEN && peerConnection === null) {
                         createPeerConnection(localMediaStream, socket);
                     }
                 };
             });
         setRoomJoinerShown(false);
+    }
+
+    function getLocalVideoRefCallback() {
+        return (ref: HTMLVideoElement) => {
+            if (ref) {
+                ref.srcObject = localMediaStream;
+                ref.onloadedmetadata = () => ref.play();
+            }
+        }
+    }
+
+    function getVideoGrid() {
+        const videosParams = remoteVideos.map<[boolean, string, ((ref: HTMLVideoElement) => void)]>((videoStream, index) => [
+            false,
+            `${videoStream.id}-${index}`,
+            (ref: HTMLVideoElement) => {
+                if (ref) {
+                    ref.srcObject = videoStream;
+                    ref.onloadedmetadata = () => ref.play();
+                }
+            }
+        ]);
+
+        videosParams.push([true, "local", getLocalVideoRefCallback()]);
+
+        return videosParams.map(
+            ([isMuted, key, ref], index) => {
+                console.log(index, key);
+                let widthClass = "w-full"; // Default full width
+                let heightClass = "h-full"; // Default full height
+                const totalVideos = videosParams.length;
+                if (totalVideos === 2) {
+                    widthClass = "w-[calc(50%-0.5rem)]"; // 2 users in a single row, accounting for gap
+                } else if (totalVideos === 3) {
+                    widthClass = index < 2 ? "w-[calc(50%-0.5rem)]" : "w-full"; // 2 users - 1 row pattern
+                    heightClass = index < 2 ? "h-[calc(50%-0.5rem)]" : "h-[calc(50%-0.5rem)]"; // Adjust height for 2-1 pattern
+                } else if (totalVideos === 4) {
+                    widthClass = "w-[calc(50%-0.5rem)]"; // 2 users - 2 rows pattern
+                    heightClass = "h-[calc(50%-0.5rem)]"; 
+                } else if (totalVideos === 5) {
+                    widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : "w-[calc(50%-0.5rem)]"; // 3-1, 2-2 pattern
+                    heightClass = index < 3 ? "h-[calc(33.3%-0.66rem)]" : "h-[calc(50%-0.5rem)]";
+                } else if (totalVideos === 6) {
+                    widthClass = "w-[calc(33.3%-0.66rem)]"; // 3-1, 3-2 pattern
+                    heightClass = "h-[calc(33.3%-0.66rem)]";
+                } else if (totalVideos === 7) {
+                    widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : (index < 6 ? "w-[calc(33.3%-0.66rem)]" : "w-full"); // 3-1, 3-2, 1-3 pattern
+                    heightClass = index < 3 ? "h-[calc(33.3%-0.66rem)]" : (index < 6 ? "h-[calc(33.3%-0.66rem)]" : "h-[calc(33.3%-0.66rem)]")
+                } else if (totalVideos === 8) {
+                    widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : (index < 6 ? "w-[calc(33.3%-0.66rem)]" : "w-[calc(50%-0.5rem)]"); // 3-1, 3-2, 2-3 pattern
+                    heightClass = index < 3 ? "h-[calc(33.3%-0.66rem)]" : (index < 6 ? "h-[calc(33.3%-0.66rem)]" : "h-[calc(50%-0.5rem)]");
+                } else if (totalVideos >= 9) {
+                    widthClass = "w-[calc(33.3%-0.66rem)]"; // 3-1, 3-2, 3-3 pattern
+                    heightClass = "h-[calc(33.3%-0.66rem)]";
+                }
+
+                return (
+                    <div key={key} className={`relative aspect-video ${widthClass} ${heightClass} flex items-center justify-center`}>
+                        <video
+                            ref={ref}
+                            autoPlay={true}
+                            muted={isMuted}
+                            className="h-full object-cover rounded-lg"
+                        />
+                    </div>
+                );
+            }
+        )
     }
 
     return (
@@ -177,74 +236,40 @@ export default function App() {
             <div id="videos" hidden={isRoomJoinerShown} className="h-screen relative">
                 {
                     remoteVideos.length === 1 ? (
-                        <div className="h-screen w-full flex items-center justify-center">
-                            <div className="relative w-full aspect-video overflow-hidden">
+                        <>
+                            <div className="h-screen w-full flex items-center justify-center">
+                                <div className="relative w-full aspect-video overflow-hidden">
+                                    <video
+                                        ref={(ref) => {
+                                            if (ref) {
+                                                ref.srcObject = remoteVideos[0];
+                                            }
+                                        }}
+                                        autoPlay={true}
+                                        className="absolute inset-0 w-full h-full object-cover"
+                                    />
+                                </div>
+                            </div>
+                            {console.log(localVideoRef)}
+                            <div className="fixed bottom-4 right-4 w-64 h-48 rounded-lg overflow-hidden shadow-lg">
                                 <video
-                                    ref={(ref) => {
-                                        if (ref) {
-                                            ref.srcObject = remoteVideos[0];
-                                        }
-                                    }}
+                                    id="local"
+                                    ref={getLocalVideoRefCallback()}
                                     autoPlay={true}
-                                    className="absolute inset-0 w-full h-full object-cover"
+                                    muted={true}
+                                    className="w-full h-full object-cover"
                                 />
                             </div>
-                        </div>
+                        </>
                     ) : (
                         <div className="flex flex-wrap justify-center items-center h-screen p-4 gap-4">
                             {
-                                remoteVideos.map(
-                                    (videoStream, index) => {
-                                        let widthClass = "w-full"; // Default full width
-                                        let heightClass = "h-full"; // Default full height
-                                        if (remoteVideos.length === 2) {
-                                            widthClass = "w-[calc(50%-0.5rem)]"; // 2 users in a single row, accounting for gap
-                                        } else if (remoteVideos.length === 3) {
-                                            widthClass = index < 2 ? "w-[calc(50%-0.5rem)]" : "w-full"; // 2-1 pattern
-                                            heightClass = index < 2 ? "h-[calc(50%-0.5rem)]" : "h-[calc(50%-0.5rem)]"; // Adjust height for 2-1 pattern
-                                        } else if (remoteVideos.length === 4) {
-                                            widthClass = "w-[calc(50%-0.5rem)]"; // 2-2 pattern
-                                            heightClass = "h-[calc(50%-0.5rem)]"; // Adjust height for 2-2 pattern
-                                        } else if (remoteVideos.length === 5) {
-                                            widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : "w-[calc(50%-0.5rem)]"; // 3-1, 2-2 pattern
-                                            heightClass = index < 3 ? "h-[calc(33.3%-0.66rem)]" : "h-[calc(50%-0.5rem)]"; // Adjust height for 3-1, 2-2 pattern
-                                        } else if (remoteVideos.length === 6) {
-                                            widthClass = "w-[calc(33.3%-0.66rem)]"; // 3-1, 3-2 pattern
-                                            heightClass = "h-[calc(33.3%-0.66rem)]"; // Adjust height for 3-1, 3-2 pattern
-                                        } else if (remoteVideos.length === 7) {
-                                            widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : (index < 6 ? "w-[calc(33.3%-0.66rem)]" : "w-full"); // 3-1, 3-2, 1-3 pattern
-                                            heightClass = index < 3 ? "h-[calc(33.3%-0.66rem)]" : (index < 6 ? "h-[calc(33.3%-0.66rem)]" : "h-[calc(33.3%-0.66rem)]"); // Adjust height for 3-1, 3-2, 1-3 pattern
-                                        } else if (remoteVideos.length === 8) {
-                                            widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : (index < 6 ? "w-[calc(33.3%-0.66rem)]" : "w-[calc(50%-0.5rem)]"); // 3-1, 3-2, 2-3 pattern
-                                            heightClass = index < 3 ? "h-[calc(33.3%-0.66rem)]" : (index < 6 ? "h-[calc(33.3%-0.66rem)]" : "h-[calc(50%-0.5rem)]"); // Adjust height for 3-1, 3-2, 2-3 pattern
-                                        } else if (remoteVideos.length >= 9) {
-                                            widthClass = "w-[calc(33.3%-0.66rem)]"; // 3-1, 3-2, 3-3 pattern
-                                            heightClass = "h-[calc(33.3%-0.66rem)]"; // Adjust height for 3-1, 3-2, 3-3 pattern
-                                        }
-
-                                        return (
-                                            <div key={`${videoStream.id}-${index}`} className={`relative aspect-video ${widthClass} ${heightClass} flex items-center justify-center`}>
-                                                <video
-                                                    ref={(ref) => {
-                                                        if (ref) {
-                                                            ref.srcObject = videoStream;
-                                                            ref.onloadedmetadata = () => {
-                                                                ref.play();
-                                                            }
-                                                        }
-                                                    }}
-                                                    autoPlay={true}
-                                                    className="h-full object-cover rounded-lg"
-                                                />
-                                            </div>
-                                        );
-                                    }
-                                )
+                                getVideoGrid()
                             }
                         </div>
                     )
                 }
-                <div className="fixed bottom-4 right-4 w-64 h-48 rounded-lg overflow-hidden shadow-lg">
+                {/* <div className="fixed bottom-4 right-4 w-64 h-48 rounded-lg overflow-hidden shadow-lg">
                     <video
                         id="local"
                         ref={localVideoRef}
@@ -252,7 +277,7 @@ export default function App() {
                         muted={true}
                         className="w-full h-full object-cover"
                     />
-                </div>
+                </div> */}
             </div>
         </main>
     );
