@@ -191,27 +191,56 @@ export default function App() {
                             </div>
                         </div>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
-                        {
-                            remoteVideos.map(
-                                (videoStream, index) => (
-                                    <div key={`${videoStream.id}-${index}`} className="relative aspect-video">
-                                        <video
-                                            ref={(ref) => {
-                                                if (ref) {
-                                                    ref.srcObject = videoStream;
-                                                    ref.onloadedmetadata = () => {
-                                                        ref.play();
-                                                    }
-                                                }
-                                            }}
-                                            autoPlay={true}
-                                            className="w-full h-full object-cover rounded-lg"
-                                        />
-                                    </div>
+                        <div className="flex flex-wrap justify-center items-center h-screen p-4 gap-4">
+                            {
+                                remoteVideos.map(
+                                    (videoStream, index) => {
+                                        let widthClass = "w-full"; // Default full width
+                                        let heightClass = "h-full"; // Default full height
+                                        if (remoteVideos.length === 2) {
+                                            widthClass = "w-[calc(50%-0.5rem)]"; // 2 users in a single row, accounting for gap
+                                        } else if (remoteVideos.length === 3) {
+                                            widthClass = index < 2 ? "w-[calc(50%-0.5rem)]" : "w-full"; // 2-1 pattern
+                                            heightClass = index < 2 ? "h-[calc(50%-0.5rem)]" : "h-[calc(50%-0.5rem)]"; // Adjust height for 2-1 pattern
+                                        } else if (remoteVideos.length === 4) {
+                                            widthClass = "w-[calc(50%-0.5rem)]"; // 2-2 pattern
+                                            heightClass = "h-[calc(50%-0.5rem)]"; // Adjust height for 2-2 pattern
+                                        } else if (remoteVideos.length === 5) {
+                                            widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : "w-[calc(50%-0.5rem)]"; // 3-1, 2-2 pattern
+                                            heightClass = index < 3 ? "h-[calc(33.3%-0.66rem)]" : "h-[calc(50%-0.5rem)]"; // Adjust height for 3-1, 2-2 pattern
+                                        } else if (remoteVideos.length === 6) {
+                                            widthClass = "w-[calc(33.3%-0.66rem)]"; // 3-1, 3-2 pattern
+                                            heightClass = "h-[calc(33.3%-0.66rem)]"; // Adjust height for 3-1, 3-2 pattern
+                                        } else if (remoteVideos.length === 7) {
+                                            widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : (index < 6 ? "w-[calc(33.3%-0.66rem)]" : "w-full"); // 3-1, 3-2, 1-3 pattern
+                                            heightClass = index < 3 ? "h-[calc(33.3%-0.66rem)]" : (index < 6 ? "h-[calc(33.3%-0.66rem)]" : "h-[calc(33.3%-0.66rem)]"); // Adjust height for 3-1, 3-2, 1-3 pattern
+                                        } else if (remoteVideos.length === 8) {
+                                            widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : (index < 6 ? "w-[calc(33.3%-0.66rem)]" : "w-[calc(50%-0.5rem)]"); // 3-1, 3-2, 2-3 pattern
+                                            heightClass = index < 3 ? "h-[calc(33.3%-0.66rem)]" : (index < 6 ? "h-[calc(33.3%-0.66rem)]" : "h-[calc(50%-0.5rem)]"); // Adjust height for 3-1, 3-2, 2-3 pattern
+                                        } else if (remoteVideos.length >= 9) {
+                                            widthClass = "w-[calc(33.3%-0.66rem)]"; // 3-1, 3-2, 3-3 pattern
+                                            heightClass = "h-[calc(33.3%-0.66rem)]"; // Adjust height for 3-1, 3-2, 3-3 pattern
+                                        }
+
+                                        return (
+                                            <div key={`${videoStream.id}-${index}`} className={`relative aspect-video ${widthClass} ${heightClass} flex items-center justify-center`}>
+                                                <video
+                                                    ref={(ref) => {
+                                                        if (ref) {
+                                                            ref.srcObject = videoStream;
+                                                            ref.onloadedmetadata = () => {
+                                                                ref.play();
+                                                            }
+                                                        }
+                                                    }}
+                                                    autoPlay={true}
+                                                    className="h-full object-cover rounded-lg"
+                                                />
+                                            </div>
+                                        );
+                                    }
                                 )
-                            )
-                        }
+                            }
                         </div>
                     )
                 }
