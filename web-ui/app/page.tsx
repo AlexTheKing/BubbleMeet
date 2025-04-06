@@ -48,13 +48,6 @@ export default function App() {
     const localVideoRef: MutableRefObject<HTMLVideoElement | null> = useRef(null);
     const [remoteVideos, setRemoteVideos] = useState<MediaStream[]>([]);
 
-    useEffect(() => {
-        console.log('My user id:', userId);
-    }, [userId]);
-    useEffect(() => {
-        console.log('RV now:', remoteVideos);
-    }, [remoteVideos]);
-
     let peerConnection: RTCPeerConnection | null = null;
 
     function createPeerConnection(localMediaStream: MediaStream, socket: WebSocket) {
@@ -250,7 +243,6 @@ export default function App() {
                                     />
                                 </div>
                             </div>
-                            {console.log(localVideoRef)}
                             <div className="fixed bottom-4 right-4 w-64 h-48 rounded-lg overflow-hidden shadow-lg">
                                 <video
                                     id="local"
