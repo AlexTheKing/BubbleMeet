@@ -175,28 +175,46 @@ export default function App() {
                 </div>
             }
             <div id="videos" hidden={isRoomJoinerShown} className="h-screen relative">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
-                    {
-                        remoteVideos.map(
-                            (videoStream, index) => (
-                                <div key={`${videoStream.id}-${index}`} className="relative aspect-video">
-                                    <video
-                                        ref={(ref) => {
-                                            if (ref) {
-                                                ref.srcObject = videoStream;
-                                                ref.onloadedmetadata = () => {
-                                                    ref.play();
+                {
+                    remoteVideos.length === 1 ? (
+                        <div className="h-screen w-full flex items-center justify-center">
+                            <div className="relative w-full aspect-video overflow-hidden">
+                                <video
+                                    ref={(ref) => {
+                                        if (ref) {
+                                            ref.srcObject = remoteVideos[0];
+                                        }
+                                    }}
+                                    autoPlay={true}
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                />
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
+                        {
+                            remoteVideos.map(
+                                (videoStream, index) => (
+                                    <div key={`${videoStream.id}-${index}`} className="relative aspect-video">
+                                        <video
+                                            ref={(ref) => {
+                                                if (ref) {
+                                                    ref.srcObject = videoStream;
+                                                    ref.onloadedmetadata = () => {
+                                                        ref.play();
+                                                    }
                                                 }
-                                            }
-                                        }}
-                                        autoPlay={true}
-                                        className="w-full h-full object-cover rounded-lg"
-                                    />
-                                </div>
+                                            }}
+                                            autoPlay={true}
+                                            className="w-full h-full object-cover rounded-lg"
+                                        />
+                                    </div>
+                                )
                             )
-                        )
-                    }
-                </div>
+                        }
+                        </div>
+                    )
+                }
                 <div className="fixed bottom-4 right-4 w-64 h-48 rounded-lg overflow-hidden shadow-lg">
                     <video
                         id="local"
