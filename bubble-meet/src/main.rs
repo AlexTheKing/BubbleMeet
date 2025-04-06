@@ -11,6 +11,8 @@ use axum::{
 };
 use axum_extra::{headers, TypedHeader};
 use futures::StreamExt;
+use log::info;
+use signaling_messages::SignalingMessage;
 use tokio::sync::Mutex;
 
 pub mod models;
@@ -54,9 +56,10 @@ async fn websocket_handler(
     Path(room_id): Path<String>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    println!(
-        "Received connect from ip={} to room_id={room_id}",
-        addr.ip()
+    info!(
+        "Received connect from ip={} to room_id={}",
+        addr.ip(),
+        room_id
     );
     ws.on_upgrade(move |socket| handle_socket(socket, state, room_id))
 }
@@ -67,27 +70,27 @@ async fn handle_socket(socket: WebSocket, state: AppState, room_id: String) {
     let room = state.get_room(&room_id).await;
     while let Some(Ok(message)) = receiver.next().await {
         if let Message::Text(text) = message {
-            SelectiveForwardingUnit::process_signaling_message(
-                serde_json::from_str(&text).expect("Cannot parse websocket message"),
-                sender.clone(),
-                &room,
-            )
-            .await
+            if let Ok(message) = serde_json::from_str::<SignalingMessage>(&text) {
+                SelectiveForwardingUnit::process_signaling_message(message, sender.clone(), &room)
+                    .await;
+            }
         }
     }
-    match state.try_remove_room(&room_id).await {
-        Ok(_) => println!("Removed room={room_id}"),
-        Err(_) => println!("Websocket connection closed, but room={room_id} is not empty"),
+    if state.try_remove_room(&room_id).await.is_ok() {
+        info!("Removed room={room_id}");
     }
 }
 
 #[tokio::main]
 async fn main() {
+    log4rs::init_file("resources/log4rs.yml", Default::default()).unwrap();
     let app = Router::new()
         .route("/rooms/:room_id", any(websocket_handler))
         .with_state(AppState::default());
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await.unwrap();
+    let address = "0.0.0.0:8000";
+    info!("Listening on {}", address);
+    let listener = tokio::net::TcpListener::bind(address).await.unwrap();
 
     axum::serve(
         listener,

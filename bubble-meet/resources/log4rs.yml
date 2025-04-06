@@ -1,0 +1,37 @@
+# Scan this file for changes every 30 seconds
+refresh_rate: 30 seconds
+
+appenders:
+  stdout:
+    kind: console
+    encoder:
+      kind: pattern
+      pattern: "{d} [{l}] {t} - {m}{n}"
+
+  file:
+    kind: rolling_file
+    path: "log/bubble-meet.log"
+    encoder:
+      kind: pattern
+      pattern: "{d} [{l}] {t} - {m}{n}"
+    policy:
+      kind: compound
+      trigger:
+        kind: size
+        limit: 10 mb
+      roller:
+        kind: delete
+
+root:
+  level: warn
+  appenders:
+    - stdout
+    - file
+
+loggers:
+  bubble_meet:
+    level: info
+    appenders:
+      - stdout
+      - file
+    additive: false

@@ -1,0 +1,60 @@
+2025-04-06T01:47:52.869744+03:00 [INFO] bubble_meet - Listening on 0.0.0.0:8000
+2025-04-06T01:47:57.363970+03:00 [INFO] bubble_meet - Received connect from ip=127.0.0.1 to room_id=123
+2025-04-06T01:47:57.369542+03:00 [INFO] bubble_meet::sfu - Received offer from user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:47:57.392289+03:00 [WARN] webrtc_ice::agent::agent_internal - [controlled]: pingAllCandidates called with no candidate pairs. Connection is not possible yet.
+2025-04-06T01:47:57.393247+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::ce81:b1c:bd2c:69e: io error: Can't assign requested address (os error 49)
+2025-04-06T01:47:57.393357+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::102c:f50e:99ab:5da0: io error: Can't assign requested address (os error 49)
+2025-04-06T01:47:57.393425+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::aaec:78d3:ac19:a9a7: io error: Can't assign requested address (os error 49)
+2025-04-06T01:47:57.393535+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::43d:c606:23e2:2faf: io error: Can't assign requested address (os error 49)
+2025-04-06T01:47:57.393651+03:00 [WARN] webrtc_ice::agent::agent_internal - [controlled]: pingAllCandidates called with no candidate pairs. Connection is not possible yet.
+2025-04-06T01:47:57.393671+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::3469:efff:fe4c:2d62: io error: Can't assign requested address (os error 49)
+2025-04-06T01:47:57.393820+03:00 [WARN] webrtc_ice::agent::agent_internal - [controlled]: pingAllCandidates called with no candidate pairs. Connection is not possible yet.
+2025-04-06T01:47:57.393840+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::1: io error: Can't assign requested address (os error 49)
+2025-04-06T01:47:57.393869+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::b925:5c16:3782:7e18: io error: Can't assign requested address (os error 49)
+2025-04-06T01:47:57.393904+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::ff9a:f0fd:cd27:47f4: io error: Can't assign requested address (os error 49)
+2025-04-06T01:47:57.393950+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::a33d:e844:1823:8abf: io error: Can't assign requested address (os error 49)
+2025-04-06T01:47:57.396284+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: failed to resolve stun host: stun.l.google.com:19302: io error: No available ipv6 IP address found!
+2025-04-06T01:47:57.416843+03:00 [WARN] webrtc_ice::agent::agent_internal - [controlled]: pingAllCandidates called with no candidate pairs. Connection is not possible yet.
+2025-04-06T01:47:57.417029+03:00 [INFO] bubble_meet::sfu - Peer connection created for user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:47:57.417497+03:00 [INFO] bubble_meet::sfu - Sent answer to user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:47:57.564206+03:00 [INFO] bubble_meet::sfu - Peer connection state of user=85de2bdd-58c2-4316-9537-9cd027c33652 has changed to connected
+2025-04-06T01:47:57.578275+03:00 [INFO] bubble_meet::sfu - Created and started video output tracks from source user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:47:57.583669+03:00 [INFO] bubble_meet::sfu - Created and started audio output tracks from source user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:48:00.705057+03:00 [INFO] bubble_meet - Received connect from ip=127.0.0.1 to room_id=123
+2025-04-06T01:48:00.711565+03:00 [INFO] bubble_meet::sfu - Received offer from user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872
+2025-04-06T01:48:00.732721+03:00 [WARN] webrtc_ice::agent::agent_internal - [controlled]: pingAllCandidates called with no candidate pairs. Connection is not possible yet.
+2025-04-06T01:48:00.733235+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::aaec:78d3:ac19:a9a7: io error: Can't assign requested address (os error 49)
+2025-04-06T01:48:00.733286+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::43d:c606:23e2:2faf: io error: Can't assign requested address (os error 49)
+2025-04-06T01:48:00.733314+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::1: io error: Can't assign requested address (os error 49)
+2025-04-06T01:48:00.733482+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::ff9a:f0fd:cd27:47f4: io error: Can't assign requested address (os error 49)
+2025-04-06T01:48:00.733508+03:00 [WARN] webrtc_ice::agent::agent_internal - [controlled]: pingAllCandidates called with no candidate pairs. Connection is not possible yet.
+2025-04-06T01:48:00.733539+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::b925:5c16:3782:7e18: io error: Can't assign requested address (os error 49)
+2025-04-06T01:48:00.733714+03:00 [WARN] webrtc_ice::agent::agent_internal - [controlled]: pingAllCandidates called with no candidate pairs. Connection is not possible yet.
+2025-04-06T01:48:00.733794+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::102c:f50e:99ab:5da0: io error: Can't assign requested address (os error 49)
+2025-04-06T01:48:00.733853+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::ce81:b1c:bd2c:69e: io error: Can't assign requested address (os error 49)
+2025-04-06T01:48:00.733903+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::a33d:e844:1823:8abf: io error: Can't assign requested address (os error 49)
+2025-04-06T01:48:00.733948+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: could not listen udp fe80::3469:efff:fe4c:2d62: io error: Can't assign requested address (os error 49)
+2025-04-06T01:48:00.735282+03:00 [WARN] webrtc_ice::agent::agent_gather - [controlled]: failed to resolve stun host: stun.l.google.com:19302: io error: No available ipv6 IP address found!
+2025-04-06T01:48:00.755659+03:00 [WARN] webrtc_ice::agent::agent_internal - [controlled]: pingAllCandidates called with no candidate pairs. Connection is not possible yet.
+2025-04-06T01:48:00.755752+03:00 [INFO] bubble_meet::sfu - Track of user=85de2bdd-58c2-4316-9537-9cd027c33652 and kind=video has been routed to user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872
+2025-04-06T01:48:00.755879+03:00 [INFO] bubble_meet::sfu - Track of user=85de2bdd-58c2-4316-9537-9cd027c33652 and kind=audio has been routed to user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872
+2025-04-06T01:48:00.755913+03:00 [INFO] bubble_meet::sfu - Peer connection created for user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872
+2025-04-06T01:48:00.756587+03:00 [INFO] bubble_meet::sfu - Sent answer to user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872
+2025-04-06T01:48:00.826262+03:00 [INFO] bubble_meet::sfu - Peer connection state of user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872 has changed to connected
+2025-04-06T01:48:00.827002+03:00 [INFO] bubble_meet::sfu - Negotiation is needed for user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872
+2025-04-06T01:48:00.827091+03:00 [INFO] bubble_meet::sfu - Resignaling with user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872
+2025-04-06T01:48:00.828938+03:00 [INFO] bubble_meet::sfu - Sent resignaling offer to user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872
+2025-04-06T01:48:00.829059+03:00 [INFO] bubble_meet::sfu - Cleaned up stale receivers for user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872
+2025-04-06T01:48:00.839236+03:00 [INFO] bubble_meet::sfu - Created and started audio output tracks from source user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872
+2025-04-06T01:48:00.839320+03:00 [INFO] bubble_meet::sfu - Negotiation is needed for user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:48:00.839377+03:00 [INFO] bubble_meet::sfu - Resignaling with user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:48:00.840843+03:00 [INFO] bubble_meet::sfu - Sent resignaling offer to user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:48:00.840930+03:00 [INFO] bubble_meet::sfu - Cleaned up stale receivers for user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:48:00.843492+03:00 [INFO] bubble_meet::sfu - Received answer from user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872
+2025-04-06T01:48:00.845505+03:00 [INFO] bubble_meet::sfu - Created and started video output tracks from source user=74d4dbdd-4794-42b2-8df5-3a04f9fa4872
+2025-04-06T01:48:00.851868+03:00 [INFO] bubble_meet::sfu - Received answer from user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:48:00.852981+03:00 [INFO] bubble_meet::sfu - Negotiation is needed for user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:48:00.853104+03:00 [INFO] bubble_meet::sfu - Resignaling with user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:48:00.854128+03:00 [INFO] bubble_meet::sfu - Sent resignaling offer to user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:48:00.854178+03:00 [INFO] bubble_meet::sfu - Cleaned up stale receivers for user=85de2bdd-58c2-4316-9537-9cd027c33652
+2025-04-06T01:48:00.861552+03:00 [INFO] bubble_meet::sfu - Received answer from user=85de2bdd-58c2-4316-9537-9cd027c33652

@@ -1,6 +1,6 @@
 [workspace]
 members = [
     "signaling-messages",
-    "video-rtc"
+    "bubble-meet"
 ]
 resolver = "2"

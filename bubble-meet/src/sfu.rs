@@ -5,6 +5,7 @@ use std::{
 
 use axum::extract::ws::{Message, WebSocket};
 use futures::{stream::SplitSink, SinkExt};
+use log::{info, warn};
 use signaling_messages::{AnswerSignalingMessage, OfferSignalingMessage, SignalingMessage};
 use tokio::sync::{
     broadcast::{self, Receiver, Sender},
@@ -43,7 +44,7 @@ impl SelectiveForwardingUnit {
     ) {
         match message {
             SignalingMessage::Offer(message) => {
-                println!("Received offer from user={}!", message.user_id);
+                info!("Received offer from user={}", message.user_id);
                 let peer_connection = SelectiveForwardingUnit::create_peer_connection(
                     ws_sender.clone(),
                     message.user_id,
@@ -70,10 +71,10 @@ impl SelectiveForwardingUnit {
                     ))
                     .await
                     .expect("Cannot send WebSocket message");
-                println!("Sent answer to user={}!", message.user_id);
+                info!("Sent answer to user={}", message.user_id);
             }
             SignalingMessage::Answer(message) => {
-                println!("Received answer from user={}!", message.user_id);
+                info!("Received answer from user={}", message.user_id);
                 if let Some(user) = room.lock().await.get_user(&message.user_id) {
                     user.peer_connection
                         .set_remote_description(message.description)
@@ -82,7 +83,7 @@ impl SelectiveForwardingUnit {
                 }
             }
             SignalingMessage::ICECandidate(_message) => {
-                // println!("Received ICE Candidate from user_id={}", message.user_id)
+                // info!("Received ICE Candidate from user_id={}", message.user_id)
             }
         }
     }
@@ -164,7 +165,7 @@ impl SelectiveForwardingUnit {
                 tx.send(rtp)
                     .expect("Cannot send packet to broadcast channel");
             }
-            println!("Reading from track with id={} is done!", input_track.id());
+            info!("Reading from track with id={} is done", input_track.id());
         });
     }
 
@@ -173,15 +174,15 @@ impl SelectiveForwardingUnit {
         user_id: Uuid,
         peer_connection: Arc<RTCPeerConnection>,
     ) {
-        println!("Resignaling with user={user_id}!");
+        info!("Resignaling with user={}", user_id);
         let offer = peer_connection
             .create_offer(Option::None)
             .await
-            .expect("Cannot create offer!");
+            .expect("Cannot create offer");
         peer_connection
             .set_local_description(offer)
             .await
-            .expect("Cannot set local description!");
+            .expect("Cannot set local description");
         match sender
             .lock()
             .await
@@ -191,14 +192,14 @@ impl SelectiveForwardingUnit {
                     peer_connection
                         .local_description()
                         .await
-                        .expect("Cannot get local description!"),
+                        .expect("Cannot get local description"),
                 ))
                 .expect("Cannot convert message to JSON"),
             ))
             .await
         {
-            Ok(_) => println!("Sent resignaling offer to user={user_id}!"),
-            Err(err) => println!("Cannot send offer to user={user_id}, error: {err}"),
+            Ok(_) => info!("Sent resignaling offer to user={}", user_id),
+            Err(err) => warn!("Cannot send offer to user={}, error: {}", user_id, err),
         }
     }
 
@@ -216,11 +217,11 @@ impl SelectiveForwardingUnit {
         tokio::spawn(async move {
             while let Ok(rtp) = rx.recv().await {
                 if let Err(err) = output_track.write_rtp(&rtp).await {
-                    println!("Cannot write RTP, error: {err}");
+                    warn!("Cannot write RTP, error: {}", err);
                     break;
                 }
             }
-            println!("Writing to track with id={} is done!", output_track.id());
+            info!("Writing to track with id={} is done", output_track.id());
         });
     }
 
@@ -263,8 +264,9 @@ impl SelectiveForwardingUnit {
                 }
 
                 SelectiveForwardingUnit::start_input_track_reading(input_track, tx);
-                println!(
-                    "Created and started {input_track_codec_type} output tracks from source user={incoming_user_id}"
+                info!(
+                    "Created and started {} output tracks from source user={}",
+                    input_track_codec_type, incoming_user_id
                 );
             });
 
@@ -277,7 +279,10 @@ impl SelectiveForwardingUnit {
         room: Arc<Mutex<Room>>,
     ) -> OnPeerConnectionStateChangeHdlrFn {
         Box::new(move |state: RTCPeerConnectionState| {
-            println!("Peer connection state of user={user_id} has changed to {state}");
+            info!(
+                "Peer connection state of user={} has changed to {}",
+                user_id, state
+            );
             if state == RTCPeerConnectionState::Failed {
                 let room = room.clone();
                 tokio::spawn(async move {
@@ -289,7 +294,7 @@ impl SelectiveForwardingUnit {
                         .close()
                         .await
                         .expect("Cannot close peer connection");
-                    println!("Closed peer connection for user={user_id}");
+                    info!("Closed peer connection for user={}", user_id);
 
                     let stream_id = SelectiveForwardingUnit::build_stream_id(user_id);
                     for user in room.lock().await.iter_users_except(&user_id) {
@@ -304,10 +309,10 @@ impl SelectiveForwardingUnit {
                             }
                         }
                     }
-                    println!("Removed stream={stream_id} from other users");
+                    info!("Removed stream={} from other users", stream_id);
 
                     room.lock().await.remove_user(&user_id);
-                    println!("Removed user={user_id} from room");
+                    info!("Removed user={} from room", user_id);
                 });
                 // Wait until PeerConnection has had no network activity for 30 seconds or another failure. It may be reconnected using an ICE Restart.
                 // Use webrtc.PeerConnectionStateDisconnected if you are interested in detecting faster timeout.
@@ -327,7 +332,7 @@ impl SelectiveForwardingUnit {
                     .expect("Cannot clean up stale receiver");
             }
         }
-        println!("Cleaned up stale receivers for user={user_id}");
+        info!("Cleaned up stale receivers for user={}", user_id);
     }
 
     async fn add_existing_tracks(
@@ -351,8 +356,8 @@ impl SelectiveForwardingUnit {
                 )
                 .await;
                 SelectiveForwardingUnit::start_output_track_writing(output_track, tx.subscribe());
-                println!(
-                    "Track of user={} and kind={} to be routed to user={}",
+                info!(
+                    "Track of user={} and kind={} has been routed to user={}",
                     existing_user.id, codec_type, incoming_user_id
                 );
             }
@@ -404,7 +409,7 @@ impl SelectiveForwardingUnit {
         let sender2 = sender.clone();
         let peer_connection2 = peer_connection.clone();
         peer_connection.on_negotiation_needed(Box::new(move || {
-            println!("Negotiation needed for user={incoming_user_id}!");
+            info!("Negotiation is needed for user={}", incoming_user_id);
 
             let sender3 = sender2.clone();
             let peer_connection3 = peer_connection2.clone();
@@ -428,12 +433,12 @@ impl SelectiveForwardingUnit {
         let answer = peer_connection
             .create_answer(Option::None)
             .await
-            .expect("Cannot create answer!");
+            .expect("Cannot create answer");
         let mut gather_complete = peer_connection.gathering_complete_promise().await;
         peer_connection
             .set_local_description(answer)
             .await
-            .expect("Cannot set local description!");
+            .expect("Cannot set local description");
 
         let _ = gather_complete.recv().await;
 
@@ -444,7 +449,7 @@ impl SelectiveForwardingUnit {
         )
         .await;
 
-        println!("Peer connection created for user={incoming_user_id}");
+        info!("Peer connection created for user={}", incoming_user_id);
         peer_connection
     }
 }
