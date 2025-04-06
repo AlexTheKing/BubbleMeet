@@ -4,7 +4,8 @@ import RoomJoiner from "@/app/components/room-joiner";
 import {MutableRefObject, useEffect, useRef, useState} from "react";
 import {v4 as uuidv4} from "uuid";
 
-const SIGNALING_SERVER_URL = "192.168.0.107:8000";
+// const SIGNALING_SERVER_URL = "192.168.0.107:8000";
+const SIGNALING_SERVER_URL = "localhost:8000";
 
 function getRoomUrl(roomId: string) {
     // return `${SIGNALING_SERVER_URL}/rooms/${roomId}`
