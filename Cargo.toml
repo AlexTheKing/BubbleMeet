@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "signaling-messages",
+    "video-rtc"
+]
+resolver = "2"
