@@ -23,6 +23,10 @@ function isStreamVideoEnabled(stream: MediaStream | null): boolean {
 }
 
 export default function GridCompanionView({localStream, remoteStreams: remoteStreams}: {localStream: MediaStream | null, remoteStreams: MediaStream[]}) {
+    if (remoteStreams.length > 9) {
+        throw new Error("GridCompanionView can only display up to 9 remote streams");
+    }
+
     const companionViewParams = remoteStreams.map<GridCompanionViewParams>((stream, index) => {
         return {
             stream: stream,
@@ -53,7 +57,10 @@ export default function GridCompanionView({localStream, remoteStreams: remoteStr
             } else if (totalVideos === 5) {
                 widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : "w-[calc(50%-0.5rem)]";
                 heightClass = "h-[calc(50%-0.5rem)]";
-            } else if (totalVideos >= 6 && totalVideos <= 9) {
+            } else if (totalVideos == 6) {
+                widthClass = "w-[calc(50%-0.5rem)]";
+                heightClass = "h-[calc(33.3%-0.66rem)]"
+            } else if (totalVideos >= 7) {
                 widthClass = "w-[calc(33.3%-0.66rem)]";
                 heightClass = "h-[calc(33.3%-0.66rem)]";
             }
