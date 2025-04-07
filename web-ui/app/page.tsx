@@ -2,12 +2,13 @@
 
 import RoomJoiner from "@/app/components/RoomJoiner";
 import assert from "assert";
-import {MutableRefObject, useEffect, useRef, useState} from "react";
+import {useState} from "react";
 import {v4 as uuidv4} from "uuid";
 import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash } from "react-icons/fa";
-import CameraView from "./components/CameraView";
 import OneOnOneCompanionView from "./components/OneOnOneCompanionView";
 import GridCompanionView from "./components/GridCompanionView";
+import MicrophoneController from "./components/controls/MicrophoneController";
+import VideoController from "./components/controls/VideoController";
 
 // const SIGNALING_SERVER_URL = "192.168.0.107:8000";
 const SIGNALING_SERVER_URL = "localhost:8000";
@@ -176,17 +177,17 @@ export default function App() {
     }
 
 
-    function toggleAudio() {
+    function toggleAudio(isAudioEnabled: boolean) {
         if (localMediaStream) {
-            localMediaStream.getAudioTracks().forEach(track => track.enabled = !track.enabled);
-            setIsLocalAudioEnabled(!isLocalAudioEnabled);
+            localMediaStream.getAudioTracks().forEach(track => track.enabled = isAudioEnabled);
+            setIsLocalAudioEnabled(isAudioEnabled);
         }
     }
 
-    function toggleVideo() {
+    function toggleVideo(isVideoEnabled: boolean) {
         if (localMediaStream) {
-            localMediaStream.getVideoTracks().forEach(track => track.enabled = !track.enabled);
-            setIsLocalVideoEnabled(!isLocalVideoEnabled);
+            localMediaStream.getVideoTracks().forEach(track => track.enabled = isVideoEnabled);
+            setIsLocalVideoEnabled(isVideoEnabled);
         }
     }
 
@@ -217,20 +218,8 @@ export default function App() {
                         }
                         </div>
                         <div className="p-4 flex justify-center space-x-2" hidden={isRoomJoinerShown}>
-                            <div className={`${isLocalAudioEnabled ? 'rounded-[50px] bg-zinc-800' : 'rounded-xl bg-red-800'} p-4 transition-all duration-300 flex items-center`}>
-                            {
-                                isLocalAudioEnabled ? 
-                                <FaMicrophone size={28} onClick={toggleAudio}/> : 
-                                <FaMicrophoneSlash size={28} onClick={toggleAudio}/>
-                            }
-                            </div>
-                            <div className={`${isLocalVideoEnabled ? 'rounded-[50px] bg-zinc-800' : 'rounded-xl bg-red-800'} p-4 transition-all duration-300 flex items-center`}>
-                            {
-                                isLocalVideoEnabled ? 
-                                <FaVideo size={28} onClick={toggleVideo}/> : 
-                                <FaVideoSlash size={28} onClick={toggleVideo}/>
-                            }
-                            </div>
+                            <MicrophoneController isAudioEnabled={isLocalAudioEnabled} onSwitch={toggleAudio}/>
+                            <VideoController isVideoEnabled={isLocalVideoEnabled} onSwitch={toggleVideo}/>
                         </div>
                     </div>
                 )
