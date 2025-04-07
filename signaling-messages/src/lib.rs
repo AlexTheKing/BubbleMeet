@@ -8,6 +8,7 @@ pub enum MessageType {
     Offer,
     Answer,
     ICECandidate,
+    StreamControl,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -46,6 +47,30 @@ pub struct ICECandidateSignalingMessage {
     candidate: RTCIceCandidateInit,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct StreamControlSignalingMessage {
+    pub user_id: Uuid,
+    pub stream_id: String,
+    pub is_audio_enabled: bool,
+    pub is_video_enabled: bool,
+}
+
+impl StreamControlSignalingMessage {
+    pub fn new(
+        user_id: Uuid,
+        stream_id: String,
+        is_audio_enabled: bool,
+        is_video_enabled: bool,
+    ) -> StreamControlSignalingMessage {
+        StreamControlSignalingMessage {
+            user_id,
+            stream_id,
+            is_audio_enabled,
+            is_video_enabled,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
 pub enum SignalingMessage {
@@ -55,4 +80,6 @@ pub enum SignalingMessage {
     Answer(AnswerSignalingMessage),
     #[serde(rename = "ICECandidate")]
     ICECandidate(ICECandidateSignalingMessage),
+    #[serde(rename = "StreamControl")]
+    StreamControl(StreamControlSignalingMessage),
 }

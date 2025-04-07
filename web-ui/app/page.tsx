@@ -2,16 +2,17 @@
 
 import RoomJoiner from "@/app/components/RoomJoiner";
 import assert from "assert";
-import {useState} from "react";
+import {useEffect, useState} from "react";
 import {v4 as uuidv4} from "uuid";
 import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash } from "react-icons/fa";
 import OneOnOneCompanionView from "./components/OneOnOneCompanionView";
 import GridCompanionView from "./components/GridCompanionView";
 import MicrophoneController from "./components/controls/MicrophoneController";
 import VideoController from "./components/controls/VideoController";
+import { StreamSettings, StreamWithSettings } from "./types";
 
-// const SIGNALING_SERVER_URL = "192.168.0.107:8000";
-const SIGNALING_SERVER_URL = "localhost:8000";
+const SIGNALING_SERVER_URL = "192.168.0.107:8000";
+// const SIGNALING_SERVER_URL = "localhost:8000";
 
 function getRoomUrl(roomId: string) {
     // return `${SIGNALING_SERVER_URL}/rooms/${roomId}`
@@ -22,7 +23,8 @@ function getRoomUrl(roomId: string) {
 enum MessageType {
     OFFER = "Offer",
     ANSWER = "Answer",
-    ICE_CANDIDATE = "ICECandidate"
+    ICE_CANDIDATE = "ICECandidate",
+    STREAM_CONTROL = "StreamControl",
 }
 
 interface AbstractSignalingMessage {
@@ -47,15 +49,35 @@ interface ICECandidateSignalingMessage extends AbstractSignalingMessage {
     candidate: RTCIceCandidate
 }
 
-type SignalingMessage = OfferSignalingMessage | AnswerSignalingMessage | ICECandidateSignalingMessage;
+interface StreamControlSignalingMessage extends AbstractSignalingMessage {
+    type: MessageType.STREAM_CONTROL,
+    user_id: string,
+    stream_id: string,
+    is_audio_enabled: boolean,
+    is_video_enabled: boolean
+}
+
+type SignalingMessage = OfferSignalingMessage | AnswerSignalingMessage | ICECandidateSignalingMessage | StreamControlSignalingMessage;
 
 export default function App() {
     const [userId, setUserId] = useState(uuidv4());
     const [isRoomJoinerShown, setRoomJoinerShown] = useState(true);
-    const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-    const [remoteStreams, setRemoteStreams] = useState<MediaStream[]>([]);
-    const [isLocalAudioEnabled, setIsLocalAudioEnabled] = useState(true);
-    const [isLocalVideoEnabled, setIsLocalVideoEnabled] = useState(true);
+    const [socket, setSocket] = useState<WebSocket | null>(null);
+    const [localStream, setLocalStream] = useState<StreamWithSettings | null>(null);
+    const [remoteStreams, setRemoteStreams] = useState<StreamWithSettings[]>([]);
+    
+    // useEffect(() => {
+    //     setRemoteStreamsSettings(
+    //         remoteStreams.reduce((acc, stream) => {
+    //             acc[stream.id] = {
+    //                 isAudioEnabled: stream.getAudioTracks().some(track => track.enabled),
+    //                 isVideoEnabled: stream.getVideoTracks().some(track => track.enabled)
+    //             };
+    //             return acc;
+    //         }, {} as {[streamId: string]: StreamSettings})
+    //     );
+    //     console.log('Track controls updated');
+    // }, [remoteStreams]);
 
     let peerConnection: RTCPeerConnection | null = null;
 
@@ -64,21 +86,27 @@ export default function App() {
         localStream.getTracks().forEach(
             track => peerConnection.addTrack(track, localStream)
         );
-        peerConnection.ontrack = ({track, streams}) => {
+        peerConnection.ontrack = ({track, streams: mediaStreams}) => {
             console.log(`Received new track ${track.id}`)
             setRemoteStreams((previousStreams) => [
-                ...streams,
+                ...mediaStreams.map(mediaStream => ({
+                    mediaStream: mediaStream,
+                    settings: {
+                        isAudioEnabled: mediaStream.getAudioTracks().some(track => track.enabled),
+                        isVideoEnabled: mediaStream.getVideoTracks().some(track => track.enabled)
+                    }
+                })),
                 ...previousStreams.filter(previousStream => 
-                    !streams.some(stream => stream.id === previousStream.id)
+                    !mediaStreams.some(mediaStream => mediaStream.id === previousStream.mediaStream.id)
                 )
             ]);
-            assert(streams.length <= 1, 'Multiple streams received');
-            let stream = streams[0];
-            stream.onremovetrack = ({track}) => {
+            assert(mediaStreams.length <= 1, 'Multiple streams received');
+            let mediaStream = mediaStreams[0];
+            mediaStream.onremovetrack = ({track}) => {
                 console.log(`Track ${track.id} was removed`);
-                if (!stream.getTracks().length) {
-                  setRemoteStreams((previousStreams) => previousStreams.filter(previousStream => previousStream.id !== stream.id));
-                  console.log(`Stream ${stream.id} was removed`);
+                if (!mediaStream.getTracks().length) {
+                  setRemoteStreams((previousStreams) => previousStreams.filter(previousStream => previousStream.mediaStream.id !== mediaStream.id));
+                  console.log(`Stream ${mediaStream.id} was removed`);
                 }
             };
         };
@@ -143,6 +171,22 @@ export default function App() {
                     new RTCIceCandidate(message.candidate)
                 );
                 break;
+            case MessageType.STREAM_CONTROL:
+                console.log('Received StreamControl')
+                setRemoteStreams((previousStreams) => previousStreams.map(stream => {
+                    console.log('Updating stream settings stream_id: ', message.stream_id, 'stream.mediaStream.id: ', stream.mediaStream.id)
+                    if (stream.mediaStream.id === message.stream_id) {
+                        return {
+                            mediaStream: stream.mediaStream,
+                            settings: {
+                                isAudioEnabled: message.is_audio_enabled,
+                                isVideoEnabled: message.is_video_enabled
+                            }
+                        }
+                    }
+                    return stream;
+                }));
+                break;
             default:
                 console.warn('Unknown message, skipping message');
                 break;
@@ -153,7 +197,13 @@ export default function App() {
         navigator.mediaDevices
             .getUserMedia({video: true, audio: true})
             .then((localStream) => {
-                setLocalStream(localStream);
+                setLocalStream({
+                    mediaStream: localStream,
+                    settings: {
+                        isAudioEnabled: true,
+                        isVideoEnabled: true
+                    }
+                });
 
                 const socket = new WebSocket(getRoomUrl(roomId));
                 socket.onmessage = async (event) => {
@@ -172,22 +222,30 @@ export default function App() {
                         console.log('Peer connection closed, socket closed');
                     }
                 };
+                setSocket(socket);
+                setRoomJoinerShown(false);
             });
-        setRoomJoinerShown(false);
     }
 
-
-    function toggleAudio(isAudioEnabled: boolean) {
-        if (localStream) {
-            localStream.getAudioTracks().forEach(track => track.enabled = isAudioEnabled);
-            setIsLocalAudioEnabled(isAudioEnabled);
-        }
-    }
-
-    function toggleVideo(isVideoEnabled: boolean) {
-        if (localStream) {
-            localStream.getVideoTracks().forEach(track => track.enabled = isVideoEnabled);
-            setIsLocalVideoEnabled(isVideoEnabled);
+    function toggleLocalStreamSettings(isAudioEnabled: boolean, isVideoEnabled: boolean) {
+        if (localStream && socket) {
+            localStream.mediaStream.getAudioTracks().forEach(track => track.enabled = isAudioEnabled);
+            localStream.mediaStream.getVideoTracks().forEach(track => track.enabled = isVideoEnabled);
+            const message: StreamControlSignalingMessage = {
+                type: MessageType.STREAM_CONTROL,
+                user_id: userId,
+                stream_id: localStream.mediaStream.id,
+                is_audio_enabled: isAudioEnabled,
+                is_video_enabled: isVideoEnabled
+            }
+            socket.send(JSON.stringify(message));
+            setLocalStream({
+                mediaStream: localStream.mediaStream,
+                settings: {
+                    isAudioEnabled: isAudioEnabled,
+                    isVideoEnabled: isVideoEnabled
+                }
+            });
         }
     }
 
@@ -207,19 +265,17 @@ export default function App() {
                             oneOnOneView ? (
                                 <OneOnOneCompanionView
                                     localStream={localStream!} 
-                                    companionStream={remoteStreams[0]} 
-                                    isLocalVideoEnabled={isLocalVideoEnabled} 
-                                    isLocalAudioEnabled={isLocalAudioEnabled}/>
+                                    companionStream={remoteStreams[0]}/>
                             ) : (
                                 <GridCompanionView
-                                    localStream={localStream!} 
+                                    localStream={localStream!}
                                     remoteStreams={remoteStreams}/>
                             )
                         }
                         </div>
                         <div className="p-4 flex justify-center space-x-2" hidden={isRoomJoinerShown}>
-                            <MicrophoneController isAudioEnabled={isLocalAudioEnabled} onSwitch={toggleAudio}/>
-                            <VideoController isVideoEnabled={isLocalVideoEnabled} onSwitch={toggleVideo}/>
+                            <MicrophoneController isAudioEnabled={localStream!.settings.isAudioEnabled} onSwitch={(isAudioEnabled) => toggleLocalStreamSettings(isAudioEnabled, localStream!.settings.isVideoEnabled)}/>
+                            <VideoController isVideoEnabled={localStream!.settings.isVideoEnabled} onSwitch={(isVideoEnabled) => toggleLocalStreamSettings(localStream!.settings.isAudioEnabled, isVideoEnabled)}/>
                         </div>
                     </div>
                 )

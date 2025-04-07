@@ -11,7 +11,7 @@ use axum::{
 };
 use axum_extra::{headers, TypedHeader};
 use futures::StreamExt;
-use log::info;
+use log::{info, warn};
 use signaling_messages::SignalingMessage;
 use tokio::sync::Mutex;
 
@@ -73,6 +73,8 @@ async fn handle_socket(socket: WebSocket, state: AppState, room_id: String) {
             if let Ok(message) = serde_json::from_str::<SignalingMessage>(&text) {
                 SelectiveForwardingUnit::process_signaling_message(message, sender.clone(), &room)
                     .await;
+            } else {
+                warn!("Received unknown message from user: {}", text);
             }
         }
     }

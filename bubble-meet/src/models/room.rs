@@ -7,10 +7,11 @@ use uuid::Uuid;
 use webrtc::rtp::packet::Packet;
 use webrtc::rtp_transceiver::rtp_codec::RTPCodecType;
 
+// TODO: refactor
 #[derive(Default)]
 pub(crate) struct Room {
     pub users: HashMap<Uuid, User>,
-    pub transmitters:
+    pub tracks_transmitters:
         HashMap<Uuid, Arc<Mutex<Vec<(RTPCodecType, Arc<Sender<Packet>>, Receiver<Packet>)>>>>,
 }
 
@@ -19,14 +20,14 @@ impl Room {
         self.users.insert(user_id, user);
     }
 
-    pub async fn add_transmitter(
+    pub async fn add_track_transmitter(
         &mut self,
         user_id: Uuid,
         codec_type: RTPCodecType,
         tx: Arc<Sender<Packet>>,
         rx: Receiver<Packet>,
     ) {
-        self.transmitters
+        self.tracks_transmitters
             .entry(user_id)
             .or_default()
             .lock()
@@ -49,13 +50,13 @@ impl Room {
 
     pub fn remove_user(&mut self, user_id: &Uuid) {
         self.users.remove(user_id);
-        self.transmitters.remove(user_id);
+        self.tracks_transmitters.remove(user_id);
     }
 
-    pub fn get_user_transmitters(
+    pub fn get_tracks_transmitters(
         &self,
         user_id: &Uuid,
     ) -> Option<&Arc<Mutex<Vec<(RTPCodecType, Arc<Sender<Packet>>, Receiver<Packet>)>>>> {
-        self.transmitters.get(user_id)
+        self.tracks_transmitters.get(user_id)
     }
 }

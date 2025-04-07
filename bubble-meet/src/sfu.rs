@@ -6,7 +6,9 @@ use std::{
 use axum::extract::ws::{Message, WebSocket};
 use futures::{stream::SplitSink, SinkExt};
 use log::{info, warn};
-use signaling_messages::{AnswerSignalingMessage, OfferSignalingMessage, SignalingMessage};
+use signaling_messages::{
+    AnswerSignalingMessage, OfferSignalingMessage, SignalingMessage, StreamControlSignalingMessage,
+};
 use tokio::sync::{
     broadcast::{self, Receiver, Sender},
     Mutex,
@@ -56,14 +58,15 @@ impl SelectiveForwardingUnit {
                     .local_description()
                     .await
                     .expect("Cannot get local description");
-                room.lock()
-                    .await
-                    .add_user(message.user_id, User::new(message.user_id, peer_connection));
+                room.lock().await.add_user(
+                    message.user_id,
+                    User::new(message.user_id, peer_connection, ws_sender.clone()),
+                );
                 ws_sender
                     .lock()
                     .await
                     .send(Message::Text(
-                        serde_json::to_string(&SelectiveForwardingUnit::create_answer(
+                        serde_json::to_string(&SelectiveForwardingUnit::create_answer_message(
                             message.user_id,
                             local_description,
                         ))
@@ -85,10 +88,52 @@ impl SelectiveForwardingUnit {
             SignalingMessage::ICECandidate(_message) => {
                 // info!("Received ICE Candidate from user_id={}", message.user_id)
             }
+            SignalingMessage::StreamControl(message) => {
+                info!(
+                    "Received stream control message from user={}",
+                    message.user_id
+                );
+                // TODO: implement this via concurrent joinset
+                for user in room.lock().await.iter_users_except(&message.user_id) {
+                    user.ws_sender
+                        .lock()
+                        .await
+                        .send(Message::Text(
+                            serde_json::to_string(
+                                &SelectiveForwardingUnit::create_stream_control_message(
+                                    message.user_id,
+                                    SelectiveForwardingUnit::build_stream_id(message.user_id),
+                                    message.is_audio_enabled,
+                                    message.is_video_enabled,
+                                ),
+                            )
+                            .expect("Cannot convert message to JSON"),
+                        ))
+                        .await
+                        .expect("Cannot send WebSocket message");
+                }
+            }
         }
     }
 
-    fn create_answer(user_id: Uuid, description: RTCSessionDescription) -> SignalingMessage {
+    fn create_stream_control_message(
+        user_id: Uuid,
+        stream_id: String,
+        is_audio_enabled: bool,
+        is_video_enabled: bool,
+    ) -> SignalingMessage {
+        SignalingMessage::StreamControl(StreamControlSignalingMessage {
+            user_id,
+            stream_id,
+            is_audio_enabled,
+            is_video_enabled,
+        })
+    }
+
+    fn create_answer_message(
+        user_id: Uuid,
+        description: RTCSessionDescription,
+    ) -> SignalingMessage {
         SignalingMessage::Answer(AnswerSignalingMessage {
             user_id,
             description,
@@ -187,7 +232,7 @@ impl SelectiveForwardingUnit {
             .lock()
             .await
             .send(Message::Text(
-                serde_json::to_string(&SelectiveForwardingUnit::create_offer(
+                serde_json::to_string(&SelectiveForwardingUnit::create_offer_message(
                     user_id,
                     peer_connection
                         .local_description()
@@ -203,7 +248,7 @@ impl SelectiveForwardingUnit {
         }
     }
 
-    fn create_offer(user_id: Uuid, description: RTCSessionDescription) -> SignalingMessage {
+    fn create_offer_message(user_id: Uuid, description: RTCSessionDescription) -> SignalingMessage {
         SignalingMessage::Offer(OfferSignalingMessage {
             user_id,
             description,
@@ -248,7 +293,7 @@ impl SelectiveForwardingUnit {
                 let tx = Arc::new(tx);
                 room.lock()
                     .await
-                    .add_transmitter(incoming_user_id, input_track_codec_type, tx.clone(), rx)
+                    .add_track_transmitter(incoming_user_id, input_track_codec_type, tx.clone(), rx)
                     .await;
                 for other_user in room.lock().await.iter_users_except(&incoming_user_id) {
                     let output_track = SelectiveForwardingUnit::create_output_track(
@@ -343,7 +388,7 @@ impl SelectiveForwardingUnit {
         let room_lock = room.lock().await;
         for existing_user in room_lock.iter_users_except(&incoming_user_id) {
             for (codec_type, tx, _) in room_lock
-                .get_user_transmitters(&existing_user.id)
+                .get_tracks_transmitters(&existing_user.id)
                 .unwrap_or(&Arc::new(Mutex::new(Vec::new())))
                 .lock()
                 .await

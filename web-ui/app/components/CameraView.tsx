@@ -1,16 +1,17 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { FaMicrophoneSlash } from "react-icons/fa";
+import { StreamWithSettings } from "../types";
 
-
-export default function CameraView({isLocal, stream, isVideoEnabled, isAudioEnabled}: {isLocal: boolean, stream: MediaStream | null, isVideoEnabled: boolean, isAudioEnabled: boolean}) {    
+export default function CameraView({isLocal, stream}: {isLocal: boolean, stream: StreamWithSettings}) {    
     const [isMetadataLoaded, setIsMetadataLoaded] = useState(false);
+
 
     const memoizedVideo = useMemo(() => {
         return (
             <video
                 ref={(ref: HTMLVideoElement) => {
                     if (ref && stream !== null) {
-                        ref.srcObject = stream;
+                        ref.srcObject = stream.mediaStream;
                         ref.onloadedmetadata = () => {
                             ref.play();
                             setIsMetadataLoaded(true);
@@ -22,12 +23,12 @@ export default function CameraView({isLocal, stream, isVideoEnabled, isAudioEnab
                 className="absolute inset-0 w-full h-full object-cover rounded-lg"
             />
         )
-    }, [isLocal, stream])
+    }, [isLocal, stream.mediaStream])
     
     return (
         <>
             {
-                isVideoEnabled ? (
+                stream.settings.isVideoEnabled ? (
                     <>
                         {memoizedVideo}
                         <div hidden={isMetadataLoaded} className="absolute inset-0 w-full h-full bg-gray-700 flex items-center justify-center">
@@ -42,7 +43,7 @@ export default function CameraView({isLocal, stream, isVideoEnabled, isAudioEnab
                 )
             }
             {
-                !isAudioEnabled && (
+                !stream.settings.isAudioEnabled && (
                     <div className="absolute right-0 top-0 mr-3 mt-3 p-1 rounded-[50px] bg-zinc-800/35">
                         <FaMicrophoneSlash size={16}/>
                     </div>
