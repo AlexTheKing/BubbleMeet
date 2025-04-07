@@ -1,10 +1,13 @@
 'use client';
 
-import RoomJoiner from "@/app/components/room-joiner";
+import RoomJoiner from "@/app/components/RoomJoiner";
 import assert from "assert";
 import {MutableRefObject, useEffect, useRef, useState} from "react";
 import {v4 as uuidv4} from "uuid";
 import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash } from "react-icons/fa";
+import CameraView from "./components/CameraView";
+import OneOnOneCompanionView from "./components/OneOnOneCompanionView";
+import GridCompanionView from "./components/GridCompanionView";
 
 // const SIGNALING_SERVER_URL = "192.168.0.107:8000";
 const SIGNALING_SERVER_URL = "localhost:8000";
@@ -49,7 +52,7 @@ export default function App() {
     const [userId, setUserId] = useState(uuidv4());
     const [isRoomJoinerShown, setRoomJoinerShown] = useState(true);
     const [localMediaStream, setLocalMediaStream] = useState<MediaStream | null>(null);
-    const [remoteVideos, setRemoteVideos] = useState<MediaStream[]>([]);
+    const [remoteStreams, setRemoteStreams] = useState<MediaStream[]>([]);
     const [isLocalAudioEnabled, setIsLocalAudioEnabled] = useState(true);
     const [isLocalVideoEnabled, setIsLocalVideoEnabled] = useState(true);
 
@@ -62,10 +65,10 @@ export default function App() {
         );
         peerConnection.ontrack = ({track, streams}) => {
             console.log(`Received new track ${track.id}`)
-            setRemoteVideos((previousVideos) => [
+            setRemoteStreams((previousStreams) => [
                 ...streams,
-                ...previousVideos.filter(previousVideo => 
-                    !streams.some(stream => stream.id === previousVideo.id)
+                ...previousStreams.filter(previousStream => 
+                    !streams.some(stream => stream.id === previousStream.id)
                 )
             ]);
             assert(streams.length <= 1, 'Multiple streams received');
@@ -73,7 +76,7 @@ export default function App() {
             stream.onremovetrack = ({track}) => {
                 console.log(`Track ${track.id} was removed`);
                 if (!stream.getTracks().length) {
-                  setRemoteVideos((previousVideos) => previousVideos.filter(previousVideo => previousVideo.id !== stream.id));
+                  setRemoteStreams((previousStreams) => previousStreams.filter(previousStream => previousStream.id !== stream.id));
                   console.log(`Stream ${stream.id} was removed`);
                 }
             };
@@ -172,102 +175,6 @@ export default function App() {
         setRoomJoinerShown(false);
     }
 
-    function getVideoRefCallback(videoStream: MediaStream | null): ((ref: HTMLVideoElement) => void) {
-        return (ref: HTMLVideoElement) => {
-            if (ref && videoStream !== null) {
-                ref.srcObject = videoStream;
-                ref.onloadedmetadata = () => ref.play();
-            }
-        }
-    }
-
-    function isStreamAudioEnabled(videoStream: MediaStream | null): boolean {
-        if (videoStream === null) {
-            return false;
-        }
-        return videoStream.getAudioTracks().some(track => track.enabled);
-    }
-
-    function isStreamVideoEnabled(videoStream: MediaStream | null): boolean {
-        if (videoStream === null) {
-            return false;
-        }
-        return videoStream.getVideoTracks().some(track => track.enabled);
-    }
-
-    function buildVideoGrid() {
-        interface VideoParams {
-            streamKey: string,
-            videoRefCallback: (ref: HTMLVideoElement) => void,
-            isStreamAudioEnabled: boolean,
-            isStreamVideoEnabled: boolean
-        }
-
-        const videosParams = remoteVideos.map<VideoParams>((videoStream, index) => {
-            return {
-                streamKey: `${videoStream.id}-${index}`,
-                videoRefCallback: getVideoRefCallback(videoStream),
-                isStreamAudioEnabled: isStreamAudioEnabled(videoStream),
-                isStreamVideoEnabled: isStreamVideoEnabled(videoStream)
-            }
-        });
-
-        videosParams.push({
-            streamKey: "local",
-            videoRefCallback: getVideoRefCallback(localMediaStream),
-            isStreamAudioEnabled: isStreamAudioEnabled(localMediaStream),
-            isStreamVideoEnabled: isStreamVideoEnabled(localMediaStream)
-        });
-
-        return videosParams.map(
-            ({streamKey, videoRefCallback, isStreamAudioEnabled, isStreamVideoEnabled}, index) => {
-                let widthClass = "w-full";
-                let heightClass = "h-full";
-                const totalVideos = videosParams.length;
-                if (totalVideos === 2) {
-                    widthClass = "w-[calc(50%-0.5rem)]";
-                } else if (totalVideos === 3 || totalVideos === 4) {
-                    widthClass = "w-[calc(50%-0.5rem)]";
-                    heightClass = "h-[calc(50%-0.5rem)]";
-                } else if (totalVideos === 5) {
-                    widthClass = index < 3 ? "w-[calc(33.3%-0.66rem)]" : "w-[calc(50%-0.5rem)]";
-                    heightClass = "h-[calc(50%-0.5rem)]";
-                } else if (totalVideos >= 6 && totalVideos <= 9) {
-                    widthClass = "w-[calc(33.3%-0.66rem)]";
-                    heightClass = "h-[calc(33.3%-0.66rem)]";
-                }
-
-                return (
-                    <div key={streamKey} className={`${widthClass} ${heightClass} flex items-center justify-center`}>
-                        <div className="relative w-full h-full overflow-hidden">
-                            {isStreamVideoEnabled ? (
-                                <video
-                                    ref={videoRefCallback}
-                                    autoPlay={true}
-                                    muted={!isStreamAudioEnabled}
-                                    className="absolute inset-0 w-full h-full object-cover rounded-lg"
-                                />
-                            ) : (
-                                <div className="w-full h-full bg-gray-700 flex items-center justify-center">
-                                    <span className="text-white">Video Off</span>
-                                </div>
-                            )}
-
-                            {
-                                !isStreamAudioEnabled && (
-                                    <div className="absolute right-0 top-0 mr-3 mt-3 p-1 rounded-[50px] bg-zinc-800/35">
-                                        <FaMicrophoneSlash size={16}/>
-                                    </div>
-                                )
-                            }
-                        </div>
-                    </div>
-                );
-            }
-        )
-    }
-
-    const oneOnOneView = remoteVideos.length === 1;
 
     function toggleAudio() {
         if (localMediaStream) {
@@ -283,6 +190,8 @@ export default function App() {
         }
     }
 
+    const oneOnOneView = remoteStreams.length === 1;
+
     return (
         <main className="bg-zinc-900 text-white">
             {
@@ -295,36 +204,15 @@ export default function App() {
                         <div id="videos" className="relative h-full">
                         {
                             oneOnOneView ? (
-                                <>
-                                    <div className="h-full w-full flex items-center justify-center">
-                                        <div className="relative w-full h-full overflow-hidden">
-                                            <video
-                                                ref={getVideoRefCallback(remoteVideos[0])}
-                                                autoPlay={true}
-                                                className="absolute inset-0 w-full h-full object-cover"
-                                            />
-                                        </div>
-                                    </div>
-                                    {
-                                        isLocalVideoEnabled && (
-                                            <div className="fixed bottom-4 right-4 w-64 h-48 rounded-lg overflow-hidden shadow-lg">
-                                                <video
-                                                    id="local"
-                                                    ref={getVideoRefCallback(localMediaStream)}
-                                                    autoPlay={true}
-                                                    muted={true}
-                                                    className="w-full h-full object-cover"
-                                                />
-                                            </div>
-                                        )
-                                    }
-                                </>
+                                <OneOnOneCompanionView
+                                    localStream={localMediaStream!} 
+                                    companionStream={remoteStreams[0]} 
+                                    isLocalVideoEnabled={isLocalVideoEnabled} 
+                                    isLocalAudioEnabled={isLocalAudioEnabled}/>
                             ) : (
-                                <div className="flex flex-wrap justify-center items-center h-full p-2 gap-4">
-                                    {
-                                        buildVideoGrid()
-                                    }
-                                </div>
+                                <GridCompanionView
+                                    localStream={localMediaStream!} 
+                                    remoteStreams={remoteStreams}/>
                             )
                         }
                         </div>
