@@ -283,7 +283,11 @@ impl SelectiveForwardingUnit {
                 "Peer connection state of user={} has changed to {}",
                 user_id, state
             );
-            if state == RTCPeerConnectionState::Failed {
+            // Wait until PeerConnection has had no network activity for 30 seconds or another failure. It may be reconnected using an ICE Restart.
+            // Use webrtc.PeerConnectionStateDisconnected if you are interested in detecting faster timeout.
+            // Note that the PeerConnection may come back from PeerConnectionStateDisconnected.
+            // TODO: make sure that is not the case here
+            if state == RTCPeerConnectionState::Disconnected {
                 let room = room.clone();
                 tokio::spawn(async move {
                     room.lock()
@@ -314,10 +318,6 @@ impl SelectiveForwardingUnit {
                     room.lock().await.remove_user(&user_id);
                     info!("Removed user={} from room", user_id);
                 });
-                // Wait until PeerConnection has had no network activity for 30 seconds or another failure. It may be reconnected using an ICE Restart.
-                // Use webrtc.PeerConnectionStateDisconnected if you are interested in detecting faster timeout.
-                // Note that the PeerConnection may come back from PeerConnectionStateDisconnected.
-                // TODO: clean up here, remove connections/tracks!
             }
             Box::pin(async {})
         })

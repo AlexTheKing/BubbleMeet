@@ -14,7 +14,7 @@ export default function RoomJoiner({onJoinCallback}: { onJoinCallback: (roomId: 
                     placeholder="Room ID"
                     value={roomId}
                     onChange={e => setRoomId(e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                    className="bg-white shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                 />
                 <button onClick={() => onJoinCallback(roomId)}
                         className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Join

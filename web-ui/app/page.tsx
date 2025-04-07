@@ -4,6 +4,7 @@ import RoomJoiner from "@/app/components/room-joiner";
 import assert from "assert";
 import {MutableRefObject, useEffect, useRef, useState} from "react";
 import {v4 as uuidv4} from "uuid";
+import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash } from "react-icons/fa";
 
 // const SIGNALING_SERVER_URL = "192.168.0.107:8000";
 const SIGNALING_SERVER_URL = "localhost:8000";
@@ -48,8 +49,9 @@ export default function App() {
     const [userId, setUserId] = useState(uuidv4());
     const [isRoomJoinerShown, setRoomJoinerShown] = useState(true);
     const [localMediaStream, setLocalMediaStream] = useState<MediaStream | null>(null);
-    const localVideoRef: MutableRefObject<HTMLVideoElement | null> = useRef(null);
     const [remoteVideos, setRemoteVideos] = useState<MediaStream[]>([]);
+    const [isLocalAudioEnabled, setIsLocalAudioEnabled] = useState(true);
+    const [isLocalVideoEnabled, setIsLocalVideoEnabled] = useState(true);
 
     let peerConnection: RTCPeerConnection | null = null;
 
@@ -179,17 +181,46 @@ export default function App() {
         }
     }
 
-    function buildVideoGrid() {
-        const videosParams = remoteVideos.map<[boolean, string, ((ref: HTMLVideoElement) => void)]>((videoStream, index) => [
-            false,
-            `${videoStream.id}-${index}`,
-            getVideoRefCallback(videoStream)
-        ]);
+    function isStreamAudioEnabled(videoStream: MediaStream | null): boolean {
+        if (videoStream === null) {
+            return false;
+        }
+        return videoStream.getAudioTracks().some(track => track.enabled);
+    }
 
-        videosParams.push([true, "local", getVideoRefCallback(localMediaStream)]);
+    function isStreamVideoEnabled(videoStream: MediaStream | null): boolean {
+        if (videoStream === null) {
+            return false;
+        }
+        return videoStream.getVideoTracks().some(track => track.enabled);
+    }
+
+    function buildVideoGrid() {
+        interface VideoParams {
+            streamKey: string,
+            videoRefCallback: (ref: HTMLVideoElement) => void,
+            isStreamAudioEnabled: boolean,
+            isStreamVideoEnabled: boolean
+        }
+
+        const videosParams = remoteVideos.map<VideoParams>((videoStream, index) => {
+            return {
+                streamKey: `${videoStream.id}-${index}`,
+                videoRefCallback: getVideoRefCallback(videoStream),
+                isStreamAudioEnabled: isStreamAudioEnabled(videoStream),
+                isStreamVideoEnabled: isStreamVideoEnabled(videoStream)
+            }
+        });
+
+        videosParams.push({
+            streamKey: "local",
+            videoRefCallback: getVideoRefCallback(localMediaStream),
+            isStreamAudioEnabled: isStreamAudioEnabled(localMediaStream),
+            isStreamVideoEnabled: isStreamVideoEnabled(localMediaStream)
+        });
 
         return videosParams.map(
-            ([isMuted, key, ref], index) => {
+            ({streamKey, videoRefCallback, isStreamAudioEnabled, isStreamVideoEnabled}, index) => {
                 let widthClass = "w-full";
                 let heightClass = "h-full";
                 const totalVideos = videosParams.length;
@@ -207,14 +238,28 @@ export default function App() {
                 }
 
                 return (
-                    <div key={key} className={`${widthClass} ${heightClass} flex items-center justify-center`}>
-                        <div className="relative w-full aspect-video overflow-hidden">
-                            <video
-                                ref={ref}
-                                autoPlay={true}
-                                muted={isMuted}
-                                className="absolute inset-0 w-full h-full object-cover rounded-lg"
-                            />
+                    <div key={streamKey} className={`${widthClass} ${heightClass} flex items-center justify-center`}>
+                        <div className="relative w-full h-full overflow-hidden">
+                            {isStreamVideoEnabled ? (
+                                <video
+                                    ref={videoRefCallback}
+                                    autoPlay={true}
+                                    muted={!isStreamAudioEnabled}
+                                    className="absolute inset-0 w-full h-full object-cover rounded-lg"
+                                />
+                            ) : (
+                                <div className="w-full h-full bg-gray-700 flex items-center justify-center">
+                                    <span className="text-white">Video Off</span>
+                                </div>
+                            )}
+
+                            {
+                                !isStreamAudioEnabled && (
+                                    <div className="absolute right-0 top-0 mr-3 mt-3 p-1 rounded-[50px] bg-zinc-800/35">
+                                        <FaMicrophoneSlash size={16}/>
+                                    </div>
+                                )
+                            }
                         </div>
                     </div>
                 );
@@ -224,46 +269,84 @@ export default function App() {
 
     const oneOnOneView = remoteVideos.length === 1;
 
+    function toggleAudio() {
+        if (localMediaStream) {
+            localMediaStream.getAudioTracks().forEach(track => track.enabled = !track.enabled);
+            setIsLocalAudioEnabled(!isLocalAudioEnabled);
+        }
+    }
+
+    function toggleVideo() {
+        if (localMediaStream) {
+            localMediaStream.getVideoTracks().forEach(track => track.enabled = !track.enabled);
+            setIsLocalVideoEnabled(!isLocalVideoEnabled);
+        }
+    }
+
     return (
-        <main className="bg-sky-900 text-white">
+        <main className="bg-zinc-900 text-white">
             {
-                isRoomJoinerShown &&
-                <div className="h-screen flex flex-col items-center justify-center">
-                    <RoomJoiner onJoinCallback={onJoinCallback}/>
-                </div>
-            }
-            <div id="videos" hidden={isRoomJoinerShown} className="h-screen relative">
-                {
-                    oneOnOneView ? (
-                        <>
-                            <div className="h-screen w-full flex items-center justify-center">
-                                <div className="relative w-full aspect-video overflow-hidden">
-                                    <video
-                                        ref={getVideoRefCallback(remoteVideos[0])}
-                                        autoPlay={true}
-                                        className="absolute inset-0 w-full h-full object-cover"
-                                    />
+                isRoomJoinerShown ? (
+                    <div className="h-screen flex flex-col items-center justify-center">
+                        <RoomJoiner onJoinCallback={onJoinCallback}/>
+                    </div>
+                ) : (
+                    <div className="h-screen flex flex-col">
+                        <div id="videos" className="relative h-full">
+                        {
+                            oneOnOneView ? (
+                                <>
+                                    <div className="h-full w-full flex items-center justify-center">
+                                        <div className="relative w-full h-full overflow-hidden">
+                                            <video
+                                                ref={getVideoRefCallback(remoteVideos[0])}
+                                                autoPlay={true}
+                                                className="absolute inset-0 w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    </div>
+                                    {
+                                        isLocalVideoEnabled && (
+                                            <div className="fixed bottom-4 right-4 w-64 h-48 rounded-lg overflow-hidden shadow-lg">
+                                                <video
+                                                    id="local"
+                                                    ref={getVideoRefCallback(localMediaStream)}
+                                                    autoPlay={true}
+                                                    muted={true}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            </div>
+                                        )
+                                    }
+                                </>
+                            ) : (
+                                <div className="flex flex-wrap justify-center items-center h-full p-2 gap-4">
+                                    {
+                                        buildVideoGrid()
+                                    }
                                 </div>
-                            </div>
-                            <div className="fixed bottom-4 right-4 w-64 h-48 rounded-lg overflow-hidden shadow-lg">
-                                <video
-                                    id="local"
-                                    ref={getVideoRefCallback(localMediaStream)}
-                                    autoPlay={true}
-                                    muted={true}
-                                    className="w-full h-full object-cover"
-                                />
-                            </div>
-                        </>
-                    ) : (
-                        <div className="flex flex-wrap justify-center items-center h-screen p-4 gap-4">
-                            {
-                                buildVideoGrid()
-                            }
+                            )
+                        }
                         </div>
-                    )
-                }
-            </div>
+                        <div className="p-4 flex justify-center space-x-2" hidden={isRoomJoinerShown}>
+                            <div className={`${isLocalAudioEnabled ? 'rounded-[50px] bg-zinc-800' : 'rounded-xl bg-red-800'} p-4 transition-all duration-300 flex items-center`}>
+                            {
+                                isLocalAudioEnabled ? 
+                                <FaMicrophone size={28} onClick={toggleAudio}/> : 
+                                <FaMicrophoneSlash size={28} onClick={toggleAudio}/>
+                            }
+                            </div>
+                            <div className={`${isLocalVideoEnabled ? 'rounded-[50px] bg-zinc-800' : 'rounded-xl bg-red-800'} p-4 transition-all duration-300 flex items-center`}>
+                            {
+                                isLocalVideoEnabled ? 
+                                <FaVideo size={28} onClick={toggleVideo}/> : 
+                                <FaVideoSlash size={28} onClick={toggleVideo}/>
+                            }
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
         </main>
     );
 }
