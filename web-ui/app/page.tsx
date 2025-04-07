@@ -52,17 +52,17 @@ type SignalingMessage = OfferSignalingMessage | AnswerSignalingMessage | ICECand
 export default function App() {
     const [userId, setUserId] = useState(uuidv4());
     const [isRoomJoinerShown, setRoomJoinerShown] = useState(true);
-    const [localMediaStream, setLocalMediaStream] = useState<MediaStream | null>(null);
+    const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [remoteStreams, setRemoteStreams] = useState<MediaStream[]>([]);
     const [isLocalAudioEnabled, setIsLocalAudioEnabled] = useState(true);
     const [isLocalVideoEnabled, setIsLocalVideoEnabled] = useState(true);
 
     let peerConnection: RTCPeerConnection | null = null;
 
-    function createPeerConnection(localMediaStream: MediaStream, socket: WebSocket) {
+    function createPeerConnection(localStream: MediaStream, socket: WebSocket) {
         const peerConnection = new RTCPeerConnection();
-        localMediaStream.getTracks().forEach(
-            track => peerConnection.addTrack(track, localMediaStream)
+        localStream.getTracks().forEach(
+            track => peerConnection.addTrack(track, localStream)
         );
         peerConnection.ontrack = ({track, streams}) => {
             console.log(`Received new track ${track.id}`)
@@ -152,8 +152,8 @@ export default function App() {
     function onJoinCallback(roomId: string) {
         navigator.mediaDevices
             .getUserMedia({video: true, audio: true})
-            .then((localMediaStream) => {
-                setLocalMediaStream(localMediaStream);
+            .then((localStream) => {
+                setLocalStream(localStream);
 
                 const socket = new WebSocket(getRoomUrl(roomId));
                 socket.onmessage = async (event) => {
@@ -161,7 +161,7 @@ export default function App() {
                 }
                 socket.onopen = (_) => {
                     if (socket.readyState === WebSocket.OPEN && peerConnection === null) {
-                        peerConnection = createPeerConnection(localMediaStream, socket);
+                        peerConnection = createPeerConnection(localStream, socket);
                         console.log('Peer connection created, socket opened');
                     }
                 };
@@ -178,15 +178,15 @@ export default function App() {
 
 
     function toggleAudio(isAudioEnabled: boolean) {
-        if (localMediaStream) {
-            localMediaStream.getAudioTracks().forEach(track => track.enabled = isAudioEnabled);
+        if (localStream) {
+            localStream.getAudioTracks().forEach(track => track.enabled = isAudioEnabled);
             setIsLocalAudioEnabled(isAudioEnabled);
         }
     }
 
     function toggleVideo(isVideoEnabled: boolean) {
-        if (localMediaStream) {
-            localMediaStream.getVideoTracks().forEach(track => track.enabled = isVideoEnabled);
+        if (localStream) {
+            localStream.getVideoTracks().forEach(track => track.enabled = isVideoEnabled);
             setIsLocalVideoEnabled(isVideoEnabled);
         }
     }
@@ -206,13 +206,13 @@ export default function App() {
                         {
                             oneOnOneView ? (
                                 <OneOnOneCompanionView
-                                    localStream={localMediaStream!} 
+                                    localStream={localStream!} 
                                     companionStream={remoteStreams[0]} 
                                     isLocalVideoEnabled={isLocalVideoEnabled} 
                                     isLocalAudioEnabled={isLocalAudioEnabled}/>
                             ) : (
                                 <GridCompanionView
-                                    localStream={localMediaStream!} 
+                                    localStream={localStream!} 
                                     remoteStreams={remoteStreams}/>
                             )
                         }
