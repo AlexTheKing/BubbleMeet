@@ -12,7 +12,7 @@ use axum::{
 use axum_extra::{headers, TypedHeader};
 use futures::StreamExt;
 use log::{info, warn};
-use signaling_messages::SignalingMessage;
+use models::messages::SignalingMessage;
 use tokio::sync::Mutex;
 
 pub mod models;
@@ -85,7 +85,9 @@ async fn handle_socket(socket: WebSocket, state: AppState, room_id: String) {
 
 #[tokio::main]
 async fn main() {
-    log4rs::init_file("resources/log4rs.yml", Default::default()).unwrap();
+    let config_path =
+        std::env::var("LOG4RS_CONFIG_PATH").unwrap_or("resources/log4rs.yml".to_string());
+    log4rs::init_file(config_path, Default::default()).unwrap();
     let app = Router::new()
         .route("/rooms/:room_id", any(websocket_handler))
         .with_state(AppState::default());

@@ -11,12 +11,9 @@ import MicrophoneController from "./components/controls/MicrophoneController";
 import VideoController from "./components/controls/VideoController";
 import { StreamSettings, StreamWithSettings } from "./types";
 
-const SIGNALING_SERVER_URL = "192.168.0.107:8000";
-// const SIGNALING_SERVER_URL = "localhost:8000";
+const SIGNALING_SERVER_URL = "localhost:8000";
 
 function getRoomUrl(roomId: string) {
-    // return `${SIGNALING_SERVER_URL}/rooms/${roomId}`
-    // let host = document.location.host.split(':')[0];
     return `ws://${SIGNALING_SERVER_URL}/rooms/${roomId}`
 }
 

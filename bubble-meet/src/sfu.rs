@@ -6,9 +6,6 @@ use std::{
 use axum::extract::ws::{Message, WebSocket};
 use futures::{stream::SplitSink, SinkExt};
 use log::{info, warn};
-use signaling_messages::{
-    AnswerSignalingMessage, OfferSignalingMessage, SignalingMessage, StreamControlSignalingMessage,
-};
 use tokio::sync::{
     broadcast::{self, Receiver, Sender},
     Mutex,
@@ -32,7 +29,14 @@ use webrtc::{
 };
 
 use crate::{
-    models::{room::Room, user::User},
+    models::{
+        messages::{
+            AnswerSignalingMessage, OfferSignalingMessage, SignalingMessage,
+            StreamControlSignalingMessage,
+        },
+        room::Room,
+        user::User,
+    },
     webrtc_api_factory::create_webrtc_api,
 };
 
