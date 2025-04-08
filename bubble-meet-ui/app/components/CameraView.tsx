@@ -1,36 +1,37 @@
-import { useMemo, useState } from "react";
+import { memo, useState, useMemo } from "react";
 import { FaMicrophoneSlash } from "react-icons/fa";
 import { StreamWithSettings } from "../types";
+
+const Video = memo(function Video({isLocal, mediaStream, onMetadataLoaded}: {isLocal: boolean, mediaStream: MediaStream, onMetadataLoaded: () => void}) {
+    return (
+        <video
+            ref={(ref: HTMLVideoElement) => {
+                if (ref && mediaStream !== null) {
+                    ref.srcObject = mediaStream;
+                    ref.onloadedmetadata = () => {
+                        ref.play();
+                        onMetadataLoaded();
+                    };
+                }
+            }}
+            autoPlay={true}
+            muted={isLocal}
+            className="absolute inset-0 w-full h-full object-cover rounded-lg"
+        />
+    );
+}, (prevProps, nextProps) => {
+    return prevProps.isLocal === nextProps.isLocal && prevProps.mediaStream === nextProps.mediaStream;
+});
 
 export default function CameraView({isLocal, stream}: {isLocal: boolean, stream: StreamWithSettings}) {    
     const [isMetadataLoaded, setIsMetadataLoaded] = useState(false);
 
-
-    const memoizedVideo = useMemo(() => {
-        return (
-            <video
-                ref={(ref: HTMLVideoElement) => {
-                    if (ref && stream !== null) {
-                        ref.srcObject = stream.mediaStream;
-                        ref.onloadedmetadata = () => {
-                            ref.play();
-                            setIsMetadataLoaded(true);
-                        };
-                    }
-                }}
-                autoPlay={true}
-                muted={isLocal}
-                className="absolute inset-0 w-full h-full object-cover rounded-lg"
-            />
-        )
-    }, [isLocal, stream.mediaStream])
-    
     return (
         <>
             {
                 stream.settings.isVideoEnabled ? (
                     <>
-                        {memoizedVideo}
+                        <Video isLocal={isLocal} mediaStream={stream.mediaStream} onMetadataLoaded={() => setIsMetadataLoaded(true)} />
                         <div hidden={isMetadataLoaded} className="absolute inset-0 w-full h-full bg-gray-700 flex items-center justify-center">
                             <span className="text-white">Loading...</span>
                         </div>
