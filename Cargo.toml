@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "signaling-messages",
     "bubble-meet"
 ]
 resolver = "2"

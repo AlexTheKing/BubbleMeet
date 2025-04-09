@@ -13,7 +13,10 @@ use tokio::sync::{
 use uuid::Uuid;
 use webrtc::{
     api::media_engine::{MIME_TYPE_OPUS, MIME_TYPE_VP8},
-    ice_transport::ice_server::RTCIceServer,
+    ice_transport::{
+        ice_candidate::RTCIceCandidate, ice_gatherer::OnLocalCandidateHdlrFn,
+        ice_server::RTCIceServer,
+    },
     peer_connection::{
         configuration::RTCConfiguration, peer_connection_state::RTCPeerConnectionState,
         sdp::session_description::RTCSessionDescription, OnPeerConnectionStateChangeHdlrFn,
@@ -31,8 +34,8 @@ use webrtc::{
 use crate::{
     models::{
         messages::{
-            AnswerSignalingMessage, OfferSignalingMessage, SignalingMessage,
-            StreamControlSignalingMessage,
+            AnswerSignalingMessage, ICECandidateSignalingMessage, OfferSignalingMessage,
+            SignalingMessage, StreamControlSignalingMessage,
         },
         room::Room,
         user::User,
@@ -58,27 +61,26 @@ impl SelectiveForwardingUnit {
                     room.clone(),
                 )
                 .await;
-                let local_description = peer_connection
-                    .local_description()
-                    .await
-                    .expect("Cannot get local description");
-                room.lock().await.add_user(
-                    message.user_id,
-                    User::new(message.user_id, peer_connection, ws_sender.clone()),
-                );
-                ws_sender
-                    .lock()
-                    .await
-                    .send(Message::Text(
-                        serde_json::to_string(&SelectiveForwardingUnit::create_answer_message(
-                            message.user_id,
-                            local_description,
-                        ))
-                        .expect("Cannot convert message to JSON"),
-                    ))
-                    .await
-                    .expect("Cannot send WebSocket message");
-                info!("Sent answer to user={}", message.user_id);
+                // let local_description = peer_connection
+                //     .local_description()
+                //     .await
+                //     .expect("Cannot get local description");
+                // room.lock().await.add_user(
+                //     message.user_id,
+                //     User::new(message.user_id, peer_connection, ws_sender.clone()),
+                // );
+                // ws_sender
+                //     .lock()
+                //     .await
+                //     .send(Message::Text(
+                //         serde_json::to_string(&SelectiveForwardingUnit::create_answer_message(
+                //             message.user_id,
+                //             local_description,
+                //         ))
+                //         .expect("Cannot convert message to JSON"),
+                //     ))
+                //     .await
+                //     .expect("Cannot send WebSocket message");
             }
             SignalingMessage::Answer(message) => {
                 info!("Received answer from user={}", message.user_id);
@@ -87,10 +89,18 @@ impl SelectiveForwardingUnit {
                         .set_remote_description(message.description)
                         .await
                         .expect("Cannot set remote description");
+                    info!("Set remote description for user{}", message.user_id);
                 }
             }
-            SignalingMessage::ICECandidate(_message) => {
-                // info!("Received ICE Candidate from user_id={}", message.user_id)
+            SignalingMessage::ICECandidate(message) => {
+                info!("Received ICE Candidate from user={}", message.user_id);
+                if let Some(user) = room.lock().await.get_user(&message.user_id) {
+                    user.peer_connection
+                        .add_ice_candidate(message.candidate)
+                        .await
+                        .expect("Cannot add ICE candidate");
+                    info!("Added ICE candidate for user={}", message.user_id);
+                }
             }
             SignalingMessage::StreamControl(message) => {
                 info!(
@@ -116,6 +126,9 @@ impl SelectiveForwardingUnit {
                         .await
                         .expect("Cannot send WebSocket message");
                 }
+            }
+            _ => {
+                warn!("Received unknown message: {:?}", message);
             }
         }
     }
@@ -150,7 +163,7 @@ impl SelectiveForwardingUnit {
             let timeout = tokio::time::sleep(Duration::from_secs(3));
             tokio::pin!(timeout);
             tokio::select! {
-                _ = timeout.as_mut() =>{
+                _ = timeout.as_mut() => {
                     if let Some(peer_connection) = weak_peer_connection.upgrade() {
                         result = peer_connection.write_rtcp(&[
                             Box::new(
@@ -220,10 +233,10 @@ impl SelectiveForwardingUnit {
 
     async fn resignal(
         sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
-        user_id: Uuid,
+        incoming_user_id: Uuid,
         peer_connection: Arc<RTCPeerConnection>,
     ) {
-        info!("Resignaling with user={}", user_id);
+        info!("Resignaling with user={}", incoming_user_id);
         let offer = peer_connection
             .create_offer(Option::None)
             .await
@@ -237,7 +250,7 @@ impl SelectiveForwardingUnit {
             .await
             .send(Message::Text(
                 serde_json::to_string(&SelectiveForwardingUnit::create_offer_message(
-                    user_id,
+                    incoming_user_id,
                     peer_connection
                         .local_description()
                         .await
@@ -247,8 +260,11 @@ impl SelectiveForwardingUnit {
             ))
             .await
         {
-            Ok(_) => info!("Sent resignaling offer to user={}", user_id),
-            Err(err) => warn!("Cannot send offer to user={}, error: {}", user_id, err),
+            Ok(_) => info!("Sent resignaling offer to user={}", incoming_user_id),
+            Err(err) => warn!(
+                "Cannot send offer to user={}, error: {}",
+                incoming_user_id, err
+            ),
         }
     }
 
@@ -324,13 +340,13 @@ impl SelectiveForwardingUnit {
     }
 
     fn create_on_peer_state_changed_handler(
-        user_id: Uuid,
+        incoming_user_id: Uuid,
         room: Arc<Mutex<Room>>,
     ) -> OnPeerConnectionStateChangeHdlrFn {
         Box::new(move |state: RTCPeerConnectionState| {
             info!(
                 "Peer connection state of user={} has changed to {}",
-                user_id, state
+                incoming_user_id, state
             );
             // Wait until PeerConnection has had no network activity for 30 seconds or another failure. It may be reconnected using an ICE Restart.
             // Use webrtc.PeerConnectionStateDisconnected if you are interested in detecting faster timeout.
@@ -341,16 +357,16 @@ impl SelectiveForwardingUnit {
                 tokio::spawn(async move {
                     room.lock()
                         .await
-                        .get_user(&user_id)
+                        .get_user(&incoming_user_id)
                         .unwrap()
                         .peer_connection
                         .close()
                         .await
                         .expect("Cannot close peer connection");
-                    info!("Closed peer connection for user={}", user_id);
+                    info!("Closed peer connection for user={}", incoming_user_id);
 
-                    let stream_id = SelectiveForwardingUnit::build_stream_id(user_id);
-                    for user in room.lock().await.iter_users_except(&user_id) {
+                    let stream_id = SelectiveForwardingUnit::build_stream_id(incoming_user_id);
+                    for user in room.lock().await.iter_users_except(&incoming_user_id) {
                         for sender in user.peer_connection.get_senders().await.iter() {
                             if let Some(track) = sender.track().await {
                                 if track.stream_id() == stream_id {
@@ -363,11 +379,38 @@ impl SelectiveForwardingUnit {
                         }
                     }
                     info!("Removed stream={} from other users", stream_id);
-
-                    room.lock().await.remove_user(&user_id);
-                    info!("Removed user={} from room", user_id);
+                    room.lock().await.remove_user(&incoming_user_id);
+                    info!("Removed user={} from room", incoming_user_id);
                 });
             }
+            Box::pin(async {})
+        })
+    }
+
+    fn create_on_ice_candidate_handler(
+        incoming_user_id: Uuid,
+        sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
+    ) -> OnLocalCandidateHdlrFn {
+        Box::new(move |candidate: Option<RTCIceCandidate>| {
+            if let Some(candidate) = candidate {
+                info!("ICE candidate received");
+                let sender = sender.clone();
+                tokio::spawn(async move {
+                    let message = SignalingMessage::ICECandidate(ICECandidateSignalingMessage {
+                        user_id: incoming_user_id,
+                        candidate: candidate
+                            .to_json()
+                            .expect("Cannot convert candidate to JSON"),
+                    });
+                    sender
+                        .lock()
+                        .await
+                        .send(Message::Text(serde_json::to_string(&message).unwrap()))
+                        .await
+                        .expect("Cannot send WebSocket message");
+                });
+            }
+
             Box::pin(async {})
         })
     }
@@ -414,7 +457,7 @@ impl SelectiveForwardingUnit {
     }
 
     async fn create_peer_connection(
-        sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
+        ws_sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
         incoming_user_id: Uuid,
         description: RTCSessionDescription,
         room: Arc<Mutex<Room>>,
@@ -422,7 +465,13 @@ impl SelectiveForwardingUnit {
         let api = create_webrtc_api().expect("Cannot create WebRTC API");
         let config = RTCConfiguration {
             ice_servers: vec![RTCIceServer {
-                urls: vec!["stun:stun.l.google.com:19302".to_owned()],
+                urls: vec![
+                    "stun:stun.l.google.com:19302".to_owned(),
+                    "stun:stun1.l.google.com:19302".to_owned(),
+                    "stun:stun2.l.google.com:19302".to_owned(),
+                    "stun:stun3.l.google.com:19302".to_owned(),
+                    "stun:stun4.l.google.com:19302".to_owned(),
+                ],
                 ..Default::default()
             }],
             ..Default::default()
@@ -454,8 +503,12 @@ impl SelectiveForwardingUnit {
                 room.clone(),
             ),
         );
+        peer_connection.on_ice_candidate(SelectiveForwardingUnit::create_on_ice_candidate_handler(
+            incoming_user_id,
+            ws_sender.clone(),
+        ));
 
-        let sender2 = sender.clone();
+        let sender2 = ws_sender.clone();
         let peer_connection2 = peer_connection.clone();
         peer_connection.on_negotiation_needed(Box::new(move || {
             info!("Negotiation is needed for user={}", incoming_user_id);
@@ -483,13 +536,33 @@ impl SelectiveForwardingUnit {
             .create_answer(Option::None)
             .await
             .expect("Cannot create answer");
-        let mut gather_complete = peer_connection.gathering_complete_promise().await;
         peer_connection
-            .set_local_description(answer)
+            .set_local_description(answer.clone())
             .await
             .expect("Cannot set local description");
 
+        ws_sender
+            .lock()
+            .await
+            .send(Message::Text(
+                serde_json::to_string(&SelectiveForwardingUnit::create_answer_message(
+                    incoming_user_id,
+                    answer,
+                ))
+                .expect("Cannot convert message to JSON"),
+            ))
+            .await
+            .expect("Cannot send WebSocket message");
+        info!("Sent answer to user={}", incoming_user_id);
+
+        let mut gather_complete = peer_connection.gathering_complete_promise().await;
+
         let _ = gather_complete.recv().await;
+
+        room.lock().await.add_user(
+            incoming_user_id,
+            User::new(incoming_user_id, peer_connection.clone(), ws_sender.clone()),
+        );
 
         SelectiveForwardingUnit::add_existing_tracks(
             peer_connection.clone(),

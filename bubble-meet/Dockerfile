@@ -12,4 +12,7 @@ COPY --from=builder /usr/local/cargo/bin/bubble-meet /usr/local/bin/bubble-meet
 ENV LOG4RS_CONFIG_PATH=/etc/bubble-meet/resources/log4rs.yml
 COPY resources /etc/bubble-meet/resources
 
+ENV SIGNALING_SERVER_HOST=0.0.0.0
+ENV SIGNALING_SERVER_PORT=8080
+
 CMD ["bubble-meet"]

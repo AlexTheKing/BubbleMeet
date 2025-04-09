@@ -4,14 +4,6 @@ use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 
 #[derive(Serialize, Deserialize, Debug)]
-pub enum MessageType {
-    Offer,
-    Answer,
-    ICECandidate,
-    StreamControl,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct OfferSignalingMessage {
     pub user_id: Uuid,
     pub description: RTCSessionDescription,
@@ -44,7 +36,7 @@ impl AnswerSignalingMessage {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ICECandidateSignalingMessage {
     pub user_id: Uuid,
-    candidate: RTCIceCandidateInit,
+    pub candidate: RTCIceCandidateInit,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -72,6 +64,15 @@ impl StreamControlSignalingMessage {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct PingSignalingMessage {}
+
+impl PingSignalingMessage {
+    pub fn new() -> PingSignalingMessage {
+        PingSignalingMessage {}
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
 pub enum SignalingMessage {
     #[serde(rename = "Offer")]
@@ -82,4 +83,6 @@ pub enum SignalingMessage {
     ICECandidate(ICECandidateSignalingMessage),
     #[serde(rename = "StreamControl")]
     StreamControl(StreamControlSignalingMessage),
+    #[serde(rename = "Ping")]
+    Ping(PingSignalingMessage),
 }

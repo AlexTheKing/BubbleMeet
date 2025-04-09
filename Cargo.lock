@@ -1946,15 +1946,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "signaling-messages"
-version = "0.1.0"
-dependencies = [
- "serde",
- "uuid",
- "webrtc",
-]
-
-[[package]]
 name = "signature"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

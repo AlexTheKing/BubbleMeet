@@ -2,19 +2,21 @@
 
 import RoomJoiner from "@/app/components/RoomJoiner";
 import assert from "assert";
-import {useEffect, useState} from "react";
+import {useState} from "react";
 import {v4 as uuidv4} from "uuid";
-import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash } from "react-icons/fa";
 import OneOnOneCompanionView from "./components/OneOnOneCompanionView";
 import GridCompanionView from "./components/GridCompanionView";
 import MicrophoneController from "./components/controls/MicrophoneController";
 import VideoController from "./components/controls/VideoController";
-import { StreamSettings, StreamWithSettings } from "./types";
-
-const SIGNALING_SERVER_URL = "localhost:8000";
+import { StreamWithSettings } from "./types";
 
 function getRoomUrl(roomId: string) {
-    return `ws://${SIGNALING_SERVER_URL}/rooms/${roomId}`
+    const host = (
+        process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?
+            process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL :
+            document.location.host
+    );
+    return `wss://${host}/api/v1/rooms/${roomId}`
 }
 
 enum MessageType {
@@ -22,6 +24,7 @@ enum MessageType {
     ANSWER = "Answer",
     ICE_CANDIDATE = "ICECandidate",
     STREAM_CONTROL = "StreamControl",
+    PING = "Ping",
 }
 
 interface AbstractSignalingMessage {
@@ -43,7 +46,7 @@ interface AnswerSignalingMessage extends AbstractSignalingMessage {
 interface ICECandidateSignalingMessage extends AbstractSignalingMessage {
     type: MessageType.ICE_CANDIDATE,
     user_id: string,
-    candidate: RTCIceCandidate
+    candidate: RTCIceCandidateInit
 }
 
 interface StreamControlSignalingMessage extends AbstractSignalingMessage {
@@ -54,7 +57,16 @@ interface StreamControlSignalingMessage extends AbstractSignalingMessage {
     is_video_enabled: boolean
 }
 
-type SignalingMessage = OfferSignalingMessage | AnswerSignalingMessage | ICECandidateSignalingMessage | StreamControlSignalingMessage;
+interface PingSignalingMessage extends AbstractSignalingMessage {
+    type: MessageType.PING,
+}
+
+type SignalingMessage = 
+    | OfferSignalingMessage
+    | AnswerSignalingMessage
+    | ICECandidateSignalingMessage
+    | StreamControlSignalingMessage
+    | PingSignalingMessage;
 
 export default function App() {
     const [userId, setUserId] = useState(uuidv4());
@@ -62,24 +74,23 @@ export default function App() {
     const [socket, setSocket] = useState<WebSocket | null>(null);
     const [localStream, setLocalStream] = useState<StreamWithSettings | null>(null);
     const [remoteStreams, setRemoteStreams] = useState<StreamWithSettings[]>([]);
-    
-    // useEffect(() => {
-    //     setRemoteStreamsSettings(
-    //         remoteStreams.reduce((acc, stream) => {
-    //             acc[stream.id] = {
-    //                 isAudioEnabled: stream.getAudioTracks().some(track => track.enabled),
-    //                 isVideoEnabled: stream.getVideoTracks().some(track => track.enabled)
-    //             };
-    //             return acc;
-    //         }, {} as {[streamId: string]: StreamSettings})
-    //     );
-    //     console.log('Track controls updated');
-    // }, [remoteStreams]);
 
     let peerConnection: RTCPeerConnection | null = null;
 
     function createPeerConnection(localStream: MediaStream, socket: WebSocket) {
-        const peerConnection = new RTCPeerConnection();
+        const peerConnection = new RTCPeerConnection({
+            iceServers: [
+                {
+                    urls: [
+                        'stun:stun.l.google.com:19302',
+                        'stun:stun1.l.google.com:19302',
+                        'stun:stun2.l.google.com:19302',
+                        'stun:stun3.l.google.com:19302',
+                        'stun:stun4.l.google.com:19302'
+                    ]
+                }
+            ]
+        });
         localStream.getTracks().forEach(
             track => peerConnection.addTrack(track, localStream)
         );
@@ -121,7 +132,7 @@ export default function App() {
             if (candidate !== null) {
                 const message: ICECandidateSignalingMessage = {
                     type: MessageType.ICE_CANDIDATE,
-                    candidate: candidate,
+                    candidate: candidate.toJSON(),
                     user_id: userId
                 };
                 socket.send(JSON.stringify(message));
@@ -164,7 +175,7 @@ export default function App() {
                 break;
             case MessageType.ICE_CANDIDATE:
                 console.log('Received ICECandidate')
-                peerConnection.addIceCandidate(
+                await peerConnection.addIceCandidate(
                     new RTCIceCandidate(message.candidate)
                 );
                 break;
@@ -184,8 +195,11 @@ export default function App() {
                     return stream;
                 }));
                 break;
+            case MessageType.PING:
+                console.log('Received ping')
+                break;
             default:
-                console.warn('Unknown message, skipping message');
+                console.warn('Skipping unknown message:', message);
                 break;
         }
     }
