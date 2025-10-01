@@ -1,4 +1,4 @@
-FROM rust:1.82 as builder
+FROM rust:1.90 AS builder
 WORKDIR /usr/src/bubble-meet
 COPY src src
 COPY Cargo.toml Cargo.toml

@@ -164,7 +164,7 @@ impl SelectiveForwardingUnit {
             tokio::pin!(timeout);
             tokio::select! {
                 _ = timeout.as_mut() => {
-                    if let Some(peer_connection) = weak_peer_connection.upgrade() {
+                    match weak_peer_connection.upgrade() { Some(peer_connection) => {
                         result = peer_connection.write_rtcp(&[
                             Box::new(
                                 PictureLossIndication {
@@ -173,9 +173,9 @@ impl SelectiveForwardingUnit {
                                 }
                             )
                         ]).await.map_err(Into::into);
-                    } else {
+                    } _ => {
                         break;
-                    }
+                    }}
                 }
             };
         }
