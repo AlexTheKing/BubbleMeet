@@ -10,13 +10,25 @@ import MicrophoneController from "./components/controls/MicrophoneController";
 import VideoController from "./components/controls/VideoController";
 import { StreamWithSettings } from "./types";
 
-function getRoomUrl(roomId: string) {
-    const host = (
+function getSignalingServerHost() {
+    return (
         process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?
             process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL :
             document.location.host
     );
-    return `wss://${host}/api/v1/rooms/${roomId}`
+}
+
+function getTurnServerHost() {
+    // return (
+    //     process.env.NEXT_PUBLIC_TURN_SERVER_URL ?
+    //         process.env.NEXT_PUBLIC_TURN_SERVER_URL :
+    //         document.location.host
+    // );
+    return "192.168.100.146"
+}
+
+function getRoomUrl(roomId: string) {
+    return `wss://${getSignalingServerHost()}/api/v1/rooms/${roomId}`
 }
 
 enum MessageType {
@@ -85,11 +97,8 @@ export default function App() {
             iceServers: [
                 {
                     urls: [
-                        'stun:stun.l.google.com:19302',
-                        'stun:stun1.l.google.com:19302',
-                        'stun:stun2.l.google.com:19302',
-                        'stun:stun3.l.google.com:19302',
-                        'stun:stun4.l.google.com:19302'
+                        // 'stun:stun.l.google.com:19302',
+                        `stun:${getTurnServerHost()}:3478`
                     ]
                 }
             ]

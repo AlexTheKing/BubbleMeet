@@ -31,6 +31,22 @@ services:
       - signaling-server
     networks:
       - bubble-meet-network
+  turn-server:
+    image: coturn/coturn
+    ports:
+      - "3478:3478"
+      - "3478:3478/udp"
+      - "5349:5349"
+      - "5349:5349/udp"
+      - "49152-49200:49152-49200/udp"
+    networks:
+      - bubble-meet-network
+    environment:
+      - TURN_SECRET=turnsecret
+      - TURN_USER=turnuser
+      - TURN_PORT=3478
+      - TURN_MIN_PORT=49152
+      - TURN_MAX_PORT=49200
 networks:
   bubble-meet-network:
     driver: bridge
