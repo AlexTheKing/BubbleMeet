@@ -24,7 +24,8 @@ services:
       - ./nginx/nginx-selfsigned.crt:/etc/ssl/certs/nginx-selfsigned.crt
       - ./nginx/nginx-selfsigned.key:/etc/ssl/private/nginx-selfsigned.key
     ports:
-      - "8080:8080"
+      - "80:80"
+      - "443:443"
     depends_on:
       - web
       - signaling-server

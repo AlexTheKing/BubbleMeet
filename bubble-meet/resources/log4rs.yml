@@ -23,7 +23,7 @@ appenders:
         kind: delete
 
 root:
-  level: warn
+  level: info
   appenders:
     - stdout
     - file

@@ -61,26 +61,6 @@ impl SelectiveForwardingUnit {
                     room.clone(),
                 )
                 .await;
-                // let local_description = peer_connection
-                //     .local_description()
-                //     .await
-                //     .expect("Cannot get local description");
-                // room.lock().await.add_user(
-                //     message.user_id,
-                //     User::new(message.user_id, peer_connection, ws_sender.clone()),
-                // );
-                // ws_sender
-                //     .lock()
-                //     .await
-                //     .send(Message::Text(
-                //         serde_json::to_string(&SelectiveForwardingUnit::create_answer_message(
-                //             message.user_id,
-                //             local_description,
-                //         ))
-                //         .expect("Cannot convert message to JSON"),
-                //     ))
-                //     .await
-                //     .expect("Cannot send WebSocket message");
             }
             SignalingMessage::Answer(message) => {
                 info!("Received answer from user={}", message.user_id);

@@ -2,7 +2,7 @@
 
 import RoomJoiner from "@/app/components/RoomJoiner";
 import assert from "assert";
-import {useState} from "react";
+import {useEffect, useState} from "react";
 import {v4 as uuidv4} from "uuid";
 import OneOnOneCompanionView from "./components/OneOnOneCompanionView";
 import GridCompanionView from "./components/GridCompanionView";
@@ -70,6 +70,9 @@ type SignalingMessage =
 
 export default function App() {
     const [userId, setUserId] = useState(uuidv4());
+
+    useEffect(() => console.log('User ID:', userId), [userId]);
+
     const [isRoomJoinerShown, setRoomJoinerShown] = useState(true);
     const [socket, setSocket] = useState<WebSocket | null>(null);
     const [localStream, setLocalStream] = useState<StreamWithSettings | null>(null);
