@@ -1,18 +1,22 @@
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 
+use crate::participant::ParticipantId;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct OfferSignalingMessage {
-    pub user_id: Uuid,
+    pub participant_id: ParticipantId,
     pub description: RTCSessionDescription,
 }
 
 impl OfferSignalingMessage {
-    pub fn new(user_id: Uuid, description: RTCSessionDescription) -> OfferSignalingMessage {
+    pub fn new(
+        participant_id: ParticipantId,
+        description: RTCSessionDescription,
+    ) -> OfferSignalingMessage {
         OfferSignalingMessage {
-            user_id,
+            participant_id,
             description,
         }
     }
@@ -20,14 +24,17 @@ impl OfferSignalingMessage {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AnswerSignalingMessage {
-    pub user_id: Uuid,
+    pub participant_id: ParticipantId,
     pub description: RTCSessionDescription,
 }
 
 impl AnswerSignalingMessage {
-    pub fn new(user_id: Uuid, description: RTCSessionDescription) -> AnswerSignalingMessage {
+    pub fn new(
+        participant_id: ParticipantId,
+        description: RTCSessionDescription,
+    ) -> AnswerSignalingMessage {
         AnswerSignalingMessage {
-            user_id,
+            participant_id,
             description,
         }
     }
@@ -35,13 +42,13 @@ impl AnswerSignalingMessage {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ICECandidateSignalingMessage {
-    pub user_id: Uuid,
+    pub participant_id: ParticipantId,
     pub candidate: RTCIceCandidateInit,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StreamControlSignalingMessage {
-    pub user_id: Uuid,
+    pub participant_id: ParticipantId,
     pub stream_id: String,
     pub is_audio_enabled: bool,
     pub is_video_enabled: bool,
@@ -49,26 +56,17 @@ pub struct StreamControlSignalingMessage {
 
 impl StreamControlSignalingMessage {
     pub fn new(
-        user_id: Uuid,
+        participant_id: ParticipantId,
         stream_id: String,
         is_audio_enabled: bool,
         is_video_enabled: bool,
     ) -> StreamControlSignalingMessage {
         StreamControlSignalingMessage {
-            user_id,
+            participant_id,
             stream_id,
             is_audio_enabled,
             is_video_enabled,
         }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PingSignalingMessage {}
-
-impl PingSignalingMessage {
-    pub fn new() -> PingSignalingMessage {
-        PingSignalingMessage {}
     }
 }
 
@@ -83,6 +81,10 @@ pub enum SignalingMessage {
     ICECandidate(ICECandidateSignalingMessage),
     #[serde(rename = "StreamControl")]
     StreamControl(StreamControlSignalingMessage),
-    #[serde(rename = "Ping")]
-    Ping(PingSignalingMessage),
+}
+
+impl SignalingMessage {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap()
+    }
 }

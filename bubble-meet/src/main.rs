@@ -1,50 +1,72 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, error::Error, fmt::Display, net::SocketAddr, sync::Arc};
 
 use axum::{
+    Router,
     extract::{
-        ws::{Message, WebSocket},
         ConnectInfo, Path, State, WebSocketUpgrade,
+        ws::{Message, WebSocket},
     },
     response::IntoResponse,
     routing::{any, get},
-    Router,
 };
-use axum_extra::{headers, TypedHeader};
-use futures::{SinkExt, StreamExt};
+use axum_extra::{TypedHeader, headers};
+use futures::StreamExt;
 use log::{info, warn};
-use models::messages::{PingSignalingMessage, SignalingMessage};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
-pub mod models;
+pub mod messages;
+pub mod participant;
+pub mod replayer;
+pub mod room;
 pub mod sfu;
-pub mod webrtc_api_factory;
+pub mod webrtc_factory;
 
-use crate::models::room::Room;
-use crate::sfu::SelectiveForwardingUnit;
+use crate::{messages::SignalingMessage, room::Room, sfu::SelectiveForwardingUnit};
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct AppState {
-    rooms: Arc<Mutex<HashMap<String, Arc<Mutex<Room>>>>>,
+    rooms: Arc<RwLock<HashMap<String, Arc<Room>>>>,
+    sfu: Arc<SelectiveForwardingUnit>,
 }
 
-struct RoomIsNotEmptyError();
+#[derive(Debug)]
+struct NonEmptyRoomError {
+    room_id: String,
+}
+
+impl Error for NonEmptyRoomError {}
+
+impl Display for NonEmptyRoomError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Room with id={} is not empty", self.room_id)
+    }
+}
 
 impl AppState {
-    async fn get_room(&self, room_id: &str) -> Arc<Mutex<Room>> {
-        let mut rooms_lock = self.rooms.lock().await;
-        if !rooms_lock.contains_key(room_id) {
-            rooms_lock.insert(room_id.to_string(), Default::default());
+    pub fn new() -> Self {
+        Self {
+            rooms: Default::default(),
+            sfu: Arc::new(SelectiveForwardingUnit::new()),
         }
-        rooms_lock.get(room_id).unwrap().clone()
     }
 
-    async fn try_remove_room(&self, room_id: &str) -> Result<(), RoomIsNotEmptyError> {
-        let mut rooms_lock = self.rooms.lock().await;
-        if rooms_lock.is_empty() {
-            rooms_lock.remove(room_id);
+    async fn get_room(&self, room_id: &str) -> Arc<Room> {
+        let mut rooms = self.rooms.write().await;
+        if !rooms.contains_key(room_id) {
+            rooms.insert(room_id.to_string(), Default::default());
+        }
+        rooms.get(room_id).cloned().unwrap()
+    }
+
+    async fn remove_room(&self, room_id: &str) -> Result<(), NonEmptyRoomError> {
+        let mut rooms = self.rooms.write().await;
+        if rooms.is_empty() {
+            rooms.remove(room_id);
             Ok(())
         } else {
-            Err(RoomIsNotEmptyError())
+            Err(NonEmptyRoomError {
+                room_id: room_id.to_string(),
+            })
         }
     }
 }
@@ -68,39 +90,25 @@ async fn handle_socket(socket: WebSocket, state: AppState, room_id: String) {
     let (sender, mut receiver) = socket.split();
     let sender = Arc::new(Mutex::new(sender));
     let room = state.get_room(&room_id).await;
-    {
-        let sender = sender.clone();
-        tokio::spawn(async move {
-            let mut ping_result = Result::Ok(());
-            while ping_result.is_ok() {
-                let timeout = tokio::time::sleep(Duration::from_secs(3));
-                tokio::pin!(timeout);
-                tokio::select! {
-                    _ = timeout.as_mut() => {
-                        ping_result = sender.lock().await.send(Message::Text(
-                            serde_json::to_string(&SignalingMessage::Ping(PingSignalingMessage::new())).expect("Failed to serialize ping message")
-                        )).await;
-                    }
-                };
-            }
-        });
-    }
     while let Some(Ok(message)) = receiver.next().await {
         if let Message::Text(text) = message {
             if let Ok(message) = serde_json::from_str::<SignalingMessage>(&text) {
-                SelectiveForwardingUnit::process_signaling_message(message, sender.clone(), &room)
+                let _ = state
+                    .sfu
+                    .consume_signaling_message(message, sender.clone(), room.clone())
                     .await;
             } else {
-                warn!("Received unknown message from user: {}", text);
+                warn!("Received unknown message from participant: {}", text);
             }
         }
     }
-    if state.try_remove_room(&room_id).await.is_ok() {
+    // TODO: Cannot remove room as there may be stale participants
+    if state.remove_room(&room_id).await.is_ok() {
         info!("Removed room={room_id}");
     } else {
         warn!(
-            "Failed to remove room={room_id}, it is not empty, {} users still connected",
-            room.lock().await.users.len()
+            "Failed to remove room={room_id}, it is not empty, {} participants still connected",
+            room.len().await
         );
     }
 }
@@ -117,7 +125,7 @@ async fn main() {
     let app = Router::new()
         .route("/api/v1/rooms/:room_id", any(websocket_handler))
         .route("/api/v1/health", get(health_handler))
-        .with_state(AppState::default());
+        .with_state(AppState::new());
 
     let address = std::env::var("SIGNALING_SERVER_HOST").unwrap_or("0.0.0.0".to_string());
     let port = std::env::var("SIGNALING_SERVER_PORT").unwrap_or("8080".to_string());
