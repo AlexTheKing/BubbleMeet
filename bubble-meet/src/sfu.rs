@@ -1,222 +1,387 @@
-use std::{
-    sync::{Arc, Weak},
-    time::Duration,
-};
+use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket};
-use futures::{stream::SplitSink, SinkExt};
+use futures::{SinkExt, stream::SplitSink};
 use log::{info, warn};
-use tokio::sync::{
-    broadcast::{self, Receiver, Sender},
-    Mutex,
-};
-use uuid::Uuid;
+use tokio::{sync::Mutex, task::JoinSet};
 use webrtc::{
-    api::media_engine::{MIME_TYPE_OPUS, MIME_TYPE_VP8},
-    ice_transport::{
-        ice_candidate::RTCIceCandidate, ice_gatherer::OnLocalCandidateHdlrFn,
-        ice_server::RTCIceServer,
-    },
+    ice_transport::{ice_candidate::RTCIceCandidate, ice_gatherer::OnLocalCandidateHdlrFn},
     peer_connection::{
-        configuration::RTCConfiguration, peer_connection_state::RTCPeerConnectionState,
-        sdp::session_description::RTCSessionDescription, OnPeerConnectionStateChangeHdlrFn,
-        OnTrackHdlrFn, RTCPeerConnection,
+        OnNegotiationNeededHdlrFn, OnPeerConnectionStateChangeHdlrFn, OnTrackHdlrFn,
+        RTCPeerConnection, peer_connection_state::RTCPeerConnectionState,
     },
-    rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication,
-    rtp::packet::Packet,
-    rtp_transceiver::rtp_codec::{RTCRtpCodecCapability, RTPCodecType},
-    track::{
-        track_local::{track_local_static_rtp::TrackLocalStaticRTP, TrackLocal, TrackLocalWriter},
-        track_remote::TrackRemote,
-    },
+    rtp_transceiver::rtp_codec::RTPCodecType,
 };
 
 use crate::{
-    models::{
-        messages::{
-            AnswerSignalingMessage, ICECandidateSignalingMessage, OfferSignalingMessage,
-            SignalingMessage, StreamControlSignalingMessage,
-        },
-        room::Room,
-        user::User,
+    messages::{
+        AnswerSignalingMessage, ICECandidateSignalingMessage, OfferSignalingMessage,
+        SignalingMessage, StreamControlSignalingMessage,
     },
-    webrtc_api_factory::create_webrtc_api,
+    participant::{Participant, ParticipantId},
+    replayer::Replayer,
+    room::Room,
+    webrtc_factory::WebRTCFactory,
 };
 
-pub(crate) struct SelectiveForwardingUnit {}
+pub struct SelectiveForwardingUnit {
+    webrtc_factory: WebRTCFactory,
+    replayer: Arc<Replayer>,
+}
+
+impl Default for SelectiveForwardingUnit {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl SelectiveForwardingUnit {
-    pub async fn process_signaling_message(
+    pub fn new() -> Self {
+        Self {
+            webrtc_factory: WebRTCFactory::new().expect("Cannot create WebRTC factory"),
+            replayer: Arc::new(Replayer::new()),
+        }
+    }
+
+    pub async fn consume_signaling_message(
+        &self,
         message: SignalingMessage,
         ws_sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
-        room: &Arc<Mutex<Room>>,
-    ) {
+        room: Arc<Room>,
+    ) -> Result<(), webrtc::Error> {
         match message {
             SignalingMessage::Offer(message) => {
-                info!("Received offer from user={}", message.user_id);
-                let peer_connection = SelectiveForwardingUnit::create_peer_connection(
-                    ws_sender.clone(),
-                    message.user_id,
-                    message.description,
-                    room.clone(),
-                )
-                .await;
+                self.consume_offer_message(message, ws_sender.clone(), room)
+                    .await
+                    .inspect_err(|err| warn!("Cannot consume offer message: {}", err))?;
             }
             SignalingMessage::Answer(message) => {
-                info!("Received answer from user={}", message.user_id);
-                if let Some(user) = room.lock().await.get_user(&message.user_id) {
-                    user.peer_connection
-                        .set_remote_description(message.description)
-                        .await
-                        .expect("Cannot set remote description");
-                    info!("Set remote description for user{}", message.user_id);
-                }
+                self.consume_answer_message(message, room)
+                    .await
+                    .inspect_err(|err| warn!("Cannot consume answer message: {}", err))?;
             }
             SignalingMessage::ICECandidate(message) => {
-                info!("Received ICE Candidate from user={}", message.user_id);
-                if let Some(user) = room.lock().await.get_user(&message.user_id) {
-                    user.peer_connection
-                        .add_ice_candidate(message.candidate)
-                        .await
-                        .expect("Cannot add ICE candidate");
-                    info!("Added ICE candidate for user={}", message.user_id);
-                }
+                self.consume_ice_candidate_message(message, room)
+                    .await
+                    .inspect_err(|err| warn!("Cannot consume ICE candidate message: {}", err))?;
             }
             SignalingMessage::StreamControl(message) => {
-                info!(
-                    "Received stream control message from user={}",
-                    message.user_id
-                );
-                // TODO: implement this via concurrent joinset
-                for user in room.lock().await.iter_users_except(&message.user_id) {
-                    user.ws_sender
+                self.consume_stream_control_message(message, room).await;
+            }
+        }
+        Ok(())
+    }
+
+    async fn consume_offer_message(
+        &self,
+        message: OfferSignalingMessage,
+        ws_sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
+        room: Arc<Room>,
+    ) -> Result<(), webrtc::Error> {
+        info!("Received offer from participant={}", message.participant_id);
+        let peer_connection = Arc::new(self.webrtc_factory.create_peer_connection().await?);
+        peer_connection
+            .set_remote_description(message.description)
+            .await?;
+        peer_connection.on_track(self.create_on_track_handler(
+            message.participant_id,
+            peer_connection.clone(),
+            room.clone(),
+        ));
+        peer_connection.on_peer_connection_state_change(
+            self.create_on_peer_state_changed_handler(message.participant_id, room.clone()),
+        );
+        peer_connection.on_ice_candidate(
+            self.create_on_ice_candidate_handler(message.participant_id, ws_sender.clone()),
+        );
+        peer_connection.on_negotiation_needed(self.create_on_negotiation_needed_handler(
+            message.participant_id,
+            ws_sender.clone(),
+            peer_connection.clone(),
+        ));
+        let answer = peer_connection.create_answer(Option::None).await?;
+        peer_connection
+            .set_local_description(answer.clone())
+            .await?;
+        let _ = ws_sender
+            .lock()
+            .await
+            .send(Message::Text(
+                SignalingMessage::Answer(AnswerSignalingMessage {
+                    participant_id: message.participant_id,
+                    description: answer,
+                })
+                .to_json(),
+            ))
+            .await;
+        let mut gather_complete = peer_connection.gathering_complete_promise().await;
+        let _ = gather_complete.recv().await;
+        let participant = Arc::new(Participant::new(
+            message.participant_id,
+            peer_connection.clone(),
+            ws_sender.clone(),
+        ));
+        room.add_participant(participant.clone()).await;
+        self.replayer.add_target_to_replays(participant).await;
+        info!(
+            "Peer connection created for participant={}",
+            message.participant_id
+        );
+        Ok(())
+    }
+
+    async fn consume_answer_message(
+        &self,
+        message: AnswerSignalingMessage,
+        room: Arc<Room>,
+    ) -> Result<(), webrtc::Error> {
+        info!(
+            "Received answer from participant={}",
+            message.participant_id
+        );
+        if let Some(participant) = room.get_participant(&message.participant_id).await {
+            participant
+                .peer_connection
+                .set_remote_description(message.description)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn consume_ice_candidate_message(
+        &self,
+        message: ICECandidateSignalingMessage,
+        room: Arc<Room>,
+    ) -> Result<(), webrtc::Error> {
+        info!(
+            "Received ICE Candidate from participant={}",
+            message.participant_id
+        );
+        if let Some(participant) = room.get_participant(&message.participant_id).await {
+            participant
+                .peer_connection
+                .add_ice_candidate(message.candidate)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn consume_stream_control_message(
+        &self,
+        message: StreamControlSignalingMessage,
+        room: Arc<Room>,
+    ) {
+        info!(
+            "Received stream control message from participant={}",
+            message.participant_id
+        );
+        room.with_inner(|room| {
+            Box::pin(async move {
+                JoinSet::from_iter(
+                    room.participants
+                        .iter()
+                        .filter(|(participant_id, _)| **participant_id != message.participant_id)
+                        .map(|(_, participant)| {
+                            let participant_ws_sender = participant.ws_sender.clone();
+                            let stream_control_message =
+                                SignalingMessage::StreamControl(message.clone()).to_json();
+                            async move {
+                                participant_ws_sender
+                                    .lock()
+                                    .await
+                                    .send(Message::Text(stream_control_message))
+                                    .await
+                            }
+                        }),
+                )
+                .join_all()
+                .await;
+            })
+        })
+        .await;
+    }
+
+    fn create_on_track_handler(
+        &self,
+        incoming_participant_id: ParticipantId,
+        incoming_peer_connection: Arc<RTCPeerConnection>,
+        room: Arc<Room>,
+    ) -> OnTrackHdlrFn {
+        let replay_controller = self.replayer.clone();
+        let pc = Arc::downgrade(&incoming_peer_connection);
+        Box::new(move |input_track, _, _| {
+            // TODO: save RtpReceiver/RTPTransceiver??
+            // TODO: use RTPTransceiver to replace tracks?
+            if input_track.kind() == RTPCodecType::Video {
+                let media_ssrc = input_track.ssrc();
+                let weak_peer_connection = pc.clone();
+                replay_controller.send_pli(media_ssrc, weak_peer_connection);
+            }
+
+            tokio::spawn({
+                let room = room.clone();
+                let replay_controller = replay_controller.clone();
+                async move {
+                    room.with_inner(|room| {
+                        Box::pin({
+                            let replay_controller = replay_controller.clone();
+                            let input_track = input_track.clone();
+                            async move {
+                                replay_controller
+                                    .create_replay(
+                                        incoming_participant_id,
+                                        input_track.clone(),
+                                        room.participants
+                                            .iter()
+                                            .filter(|(participant_id, _)| {
+                                                **participant_id != incoming_participant_id
+                                            })
+                                            .map(|(_, participant)| participant.clone()),
+                                    )
+                                    .await;
+                            }
+                        })
+                    })
+                    .await;
+                    info!(
+                        "Created and started {} output tracks from source participant={}",
+                        input_track.kind(),
+                        incoming_participant_id
+                    );
+                }
+            });
+
+            Box::pin(async {})
+        })
+    }
+
+    fn create_on_peer_state_changed_handler(
+        &self,
+        incoming_participant_id: ParticipantId,
+        room: Arc<Room>,
+    ) -> OnPeerConnectionStateChangeHdlrFn {
+        let replay_controller = self.replayer.clone();
+        Box::new(move |state: RTCPeerConnectionState| {
+            info!(
+                "Peer connection state of participant={} has changed to {}",
+                incoming_participant_id, state
+            );
+            // Wait until PeerConnection has had no network activity for 30 seconds or another failure. It may be reconnected using an ICE Restart.
+            // Use webrtc.PeerConnectionStateDisconnected if you are interested in detecting faster timeout.
+            // Note that the PeerConnection may come back from PeerConnectionStateDisconnected.
+            // TODO: make sure that is not the case here
+            if state == RTCPeerConnectionState::Disconnected {
+                tokio::spawn({
+                    let room = room.clone();
+                    let replay_controller = replay_controller.clone();
+                    async move {
+                        room.with_inner_mut(|room| {
+                            Box::pin({
+                                let replay_controller = replay_controller.clone();
+                                async move {
+                                    room.get_participant(&incoming_participant_id)
+                                        .unwrap_or_else(|| {
+                                            panic!(
+                                                "Participant with id={} not found",
+                                                incoming_participant_id
+                                            )
+                                        })
+                                        .peer_connection
+                                        .close()
+                                        .await
+                                        .unwrap_or_else(|_| {
+                                            panic!(
+                                                "Cannot close peer connection for participant={}",
+                                                incoming_participant_id
+                                            )
+                                        });
+                                    info!(
+                                        "Closed peer connection for participant={}",
+                                        incoming_participant_id
+                                    );
+                                    replay_controller
+                                        .remove_replays(incoming_participant_id)
+                                        .await;
+                                    room.remove_participant(&incoming_participant_id);
+                                }
+                            })
+                        })
+                        .await
+                    }
+                });
+            }
+
+            Box::pin(async {})
+        })
+    }
+
+    fn create_on_ice_candidate_handler(
+        &self,
+        incoming_participant_id: ParticipantId,
+        sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
+    ) -> OnLocalCandidateHdlrFn {
+        Box::new(move |candidate: Option<RTCIceCandidate>| {
+            if let Some(candidate) = candidate {
+                info!("ICE candidate received");
+                let sender = sender.clone();
+                tokio::spawn(async move {
+                    let message = SignalingMessage::ICECandidate(ICECandidateSignalingMessage {
+                        participant_id: incoming_participant_id,
+                        candidate: candidate
+                            .to_json()
+                            .expect("Cannot convert candidate to JSON"),
+                    });
+                    sender
                         .lock()
                         .await
-                        .send(Message::Text(
-                            serde_json::to_string(
-                                &SelectiveForwardingUnit::create_stream_control_message(
-                                    message.user_id,
-                                    SelectiveForwardingUnit::build_stream_id(message.user_id),
-                                    message.is_audio_enabled,
-                                    message.is_video_enabled,
-                                ),
-                            )
-                            .expect("Cannot convert message to JSON"),
-                        ))
+                        .send(Message::Text(message.to_json()))
                         .await
                         .expect("Cannot send WebSocket message");
-                }
+                });
             }
-            _ => {
-                warn!("Received unknown message: {:?}", message);
-            }
-        }
-    }
 
-    fn create_stream_control_message(
-        user_id: Uuid,
-        stream_id: String,
-        is_audio_enabled: bool,
-        is_video_enabled: bool,
-    ) -> SignalingMessage {
-        SignalingMessage::StreamControl(StreamControlSignalingMessage {
-            user_id,
-            stream_id,
-            is_audio_enabled,
-            is_video_enabled,
+            Box::pin(async {})
         })
     }
 
-    fn create_answer_message(
-        user_id: Uuid,
-        description: RTCSessionDescription,
-    ) -> SignalingMessage {
-        SignalingMessage::Answer(AnswerSignalingMessage {
-            user_id,
-            description,
-        })
-    }
-
-    async fn send_pli(media_ssrc: u32, weak_peer_connection: Weak<RTCPeerConnection>) {
-        let mut result = webrtc::error::Result::<usize>::Ok(0);
-        while result.is_ok() {
-            let timeout = tokio::time::sleep(Duration::from_secs(3));
-            tokio::pin!(timeout);
-            tokio::select! {
-                _ = timeout.as_mut() => {
-                    match weak_peer_connection.upgrade() { Some(peer_connection) => {
-                        result = peer_connection.write_rtcp(&[
-                            Box::new(
-                                PictureLossIndication {
-                                    sender_ssrc: 0,
-                                    media_ssrc,
-                                }
-                            )
-                        ]).await.map_err(Into::into);
-                    } _ => {
-                        break;
-                    }}
-                }
-            };
-        }
-    }
-
-    fn build_stream_id(source_user_id: Uuid) -> String {
-        format!("stream-{source_user_id}")
-    }
-
-    async fn create_output_track(
+    fn create_on_negotiation_needed_handler(
+        &self,
+        incoming_participant_id: ParticipantId,
+        sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
         peer_connection: Arc<RTCPeerConnection>,
-        source_user_id: Uuid,
-        codec_type: RTPCodecType,
-    ) -> Arc<TrackLocalStaticRTP> {
-        let output_track = Arc::new(TrackLocalStaticRTP::new(
-            RTCRtpCodecCapability {
-                mime_type: if codec_type == RTPCodecType::Video {
-                    MIME_TYPE_VP8.to_owned()
-                } else {
-                    MIME_TYPE_OPUS.to_owned()
-                },
-                ..Default::default()
-            },
-            format!("track-{source_user_id}-{codec_type}"),
-            SelectiveForwardingUnit::build_stream_id(source_user_id),
-        ));
+    ) -> OnNegotiationNeededHdlrFn {
+        Box::new(move || {
+            info!(
+                "Negotiation is needed for participant={}",
+                incoming_participant_id
+            );
 
-        // Add this newly created track to the PeerConnection
-        let rtp_sender = peer_connection
-            .add_track(output_track.clone() as Arc<dyn TrackLocal + Send + Sync>)
-            .await
-            .expect("Cannot add output track to peer connection");
+            let sender = sender.clone();
+            let peer_connection = peer_connection.clone();
+            tokio::spawn(async move {
+                SelectiveForwardingUnit::resignal(
+                    sender,
+                    incoming_participant_id,
+                    peer_connection.clone(),
+                )
+                .await;
+                SelectiveForwardingUnit::cleanup_stale_receivers(
+                    peer_connection,
+                    incoming_participant_id,
+                )
+                .await;
+            });
 
-        // Read incoming RTCP packets
-        // Before these packets are returned they are processed by interceptors. For things
-        // like NACK this needs to be called.
-        tokio::spawn(async move {
-            let mut rtcp_buf = vec![0u8; 1500];
-            while let Ok((_, _)) = rtp_sender.read(&mut rtcp_buf).await {}
-            webrtc::error::Result::<()>::Ok(())
-        });
-
-        output_track
-    }
-
-    fn start_input_track_reading(input_track: Arc<TrackRemote>, tx: Arc<Sender<Packet>>) {
-        tokio::spawn(async move {
-            while let Ok((rtp, _)) = input_track.read_rtp().await {
-                tx.send(rtp)
-                    .expect("Cannot send packet to broadcast channel");
-            }
-            info!("Reading from track with id={} is done", input_track.id());
-        });
+            Box::pin(async {})
+        })
     }
 
     async fn resignal(
         sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
-        incoming_user_id: Uuid,
+        incoming_participant_id: ParticipantId,
         peer_connection: Arc<RTCPeerConnection>,
     ) {
-        info!("Resignaling with user={}", incoming_user_id);
+        info!("Resignaling with participant={}", incoming_participant_id);
         let offer = peer_connection
             .create_offer(Option::None)
             .await
@@ -229,173 +394,32 @@ impl SelectiveForwardingUnit {
             .lock()
             .await
             .send(Message::Text(
-                serde_json::to_string(&SelectiveForwardingUnit::create_offer_message(
-                    incoming_user_id,
-                    peer_connection
+                SignalingMessage::Offer(OfferSignalingMessage {
+                    participant_id: incoming_participant_id,
+                    description: peer_connection
                         .local_description()
                         .await
                         .expect("Cannot get local description"),
-                ))
-                .expect("Cannot convert message to JSON"),
+                })
+                .to_json(),
             ))
             .await
         {
-            Ok(_) => info!("Sent resignaling offer to user={}", incoming_user_id),
+            Ok(_) => info!(
+                "Sent resignaling offer to participant={}",
+                incoming_participant_id
+            ),
             Err(err) => warn!(
-                "Cannot send offer to user={}, error: {}",
-                incoming_user_id, err
+                "Cannot send offer to participant={}, error: {}",
+                incoming_participant_id, err
             ),
         }
     }
 
-    fn create_offer_message(user_id: Uuid, description: RTCSessionDescription) -> SignalingMessage {
-        SignalingMessage::Offer(OfferSignalingMessage {
-            user_id,
-            description,
-        })
-    }
-
-    fn start_output_track_writing(
-        output_track: Arc<TrackLocalStaticRTP>,
-        mut rx: Receiver<Packet>,
+    async fn cleanup_stale_receivers(
+        peer_connection: Arc<RTCPeerConnection>,
+        participant_id: ParticipantId,
     ) {
-        tokio::spawn(async move {
-            while let Ok(rtp) = rx.recv().await {
-                if let Err(err) = output_track.write_rtp(&rtp).await {
-                    warn!("Cannot write RTP, error: {}", err);
-                    break;
-                }
-            }
-            info!("Writing to track with id={} is done", output_track.id());
-        });
-    }
-
-    fn create_on_track_handler(
-        incoming_user_id: Uuid,
-        incoming_peer_connection: Arc<RTCPeerConnection>,
-        room: Arc<Mutex<Room>>,
-    ) -> OnTrackHdlrFn {
-        let pc = Arc::downgrade(&incoming_peer_connection);
-        Box::new(move |input_track, _, _| {
-            if input_track.kind() == RTPCodecType::Video {
-                let media_ssrc = input_track.ssrc();
-                let weak_peer_connection = pc.clone();
-                tokio::spawn(async move {
-                    SelectiveForwardingUnit::send_pli(media_ssrc, weak_peer_connection).await
-                });
-            }
-
-            let room = room.clone();
-            let input_track_codec_type = input_track.kind();
-            tokio::spawn(async move {
-                // Creating output tracks for other users
-                let (tx, rx) = broadcast::channel::<Packet>(64);
-                let tx = Arc::new(tx);
-                room.lock()
-                    .await
-                    .add_track_transmitter(incoming_user_id, input_track_codec_type, tx.clone(), rx)
-                    .await;
-                for other_user in room.lock().await.iter_users_except(&incoming_user_id) {
-                    let output_track = SelectiveForwardingUnit::create_output_track(
-                        other_user.peer_connection.clone(),
-                        incoming_user_id.clone(),
-                        input_track_codec_type.clone(),
-                    )
-                    .await;
-                    SelectiveForwardingUnit::start_output_track_writing(
-                        output_track,
-                        tx.subscribe(),
-                    );
-                }
-
-                SelectiveForwardingUnit::start_input_track_reading(input_track, tx);
-                info!(
-                    "Created and started {} output tracks from source user={}",
-                    input_track_codec_type, incoming_user_id
-                );
-            });
-
-            Box::pin(async {})
-        })
-    }
-
-    fn create_on_peer_state_changed_handler(
-        incoming_user_id: Uuid,
-        room: Arc<Mutex<Room>>,
-    ) -> OnPeerConnectionStateChangeHdlrFn {
-        Box::new(move |state: RTCPeerConnectionState| {
-            info!(
-                "Peer connection state of user={} has changed to {}",
-                incoming_user_id, state
-            );
-            // Wait until PeerConnection has had no network activity for 30 seconds or another failure. It may be reconnected using an ICE Restart.
-            // Use webrtc.PeerConnectionStateDisconnected if you are interested in detecting faster timeout.
-            // Note that the PeerConnection may come back from PeerConnectionStateDisconnected.
-            // TODO: make sure that is not the case here
-            if state == RTCPeerConnectionState::Disconnected {
-                let room = room.clone();
-                tokio::spawn(async move {
-                    room.lock()
-                        .await
-                        .get_user(&incoming_user_id)
-                        .unwrap()
-                        .peer_connection
-                        .close()
-                        .await
-                        .expect("Cannot close peer connection");
-                    info!("Closed peer connection for user={}", incoming_user_id);
-
-                    let stream_id = SelectiveForwardingUnit::build_stream_id(incoming_user_id);
-                    for user in room.lock().await.iter_users_except(&incoming_user_id) {
-                        for sender in user.peer_connection.get_senders().await.iter() {
-                            if let Some(track) = sender.track().await {
-                                if track.stream_id() == stream_id {
-                                    user.peer_connection
-                                        .remove_track(sender)
-                                        .await
-                                        .expect("Cannot remove track");
-                                }
-                            }
-                        }
-                    }
-                    info!("Removed stream={} from other users", stream_id);
-                    room.lock().await.remove_user(&incoming_user_id);
-                    info!("Removed user={} from room", incoming_user_id);
-                });
-            }
-            Box::pin(async {})
-        })
-    }
-
-    fn create_on_ice_candidate_handler(
-        incoming_user_id: Uuid,
-        sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
-    ) -> OnLocalCandidateHdlrFn {
-        Box::new(move |candidate: Option<RTCIceCandidate>| {
-            if let Some(candidate) = candidate {
-                info!("ICE candidate received");
-                let sender = sender.clone();
-                tokio::spawn(async move {
-                    let message = SignalingMessage::ICECandidate(ICECandidateSignalingMessage {
-                        user_id: incoming_user_id,
-                        candidate: candidate
-                            .to_json()
-                            .expect("Cannot convert candidate to JSON"),
-                    });
-                    sender
-                        .lock()
-                        .await
-                        .send(Message::Text(serde_json::to_string(&message).unwrap()))
-                        .await
-                        .expect("Cannot send WebSocket message");
-                });
-            }
-
-            Box::pin(async {})
-        })
-    }
-
-    async fn cleanup_stale_receivers(peer_connection: Arc<RTCPeerConnection>, user_id: Uuid) {
         for receiver in peer_connection.get_receivers().await {
             if receiver.tracks().await.is_empty() {
                 receiver
@@ -404,151 +428,9 @@ impl SelectiveForwardingUnit {
                     .expect("Cannot clean up stale receiver");
             }
         }
-        info!("Cleaned up stale receivers for user={}", user_id);
-    }
-
-    async fn add_existing_tracks(
-        peer_connection: Arc<RTCPeerConnection>,
-        incoming_user_id: Uuid,
-        room: Arc<Mutex<Room>>,
-    ) {
-        let room_lock = room.lock().await;
-        for existing_user in room_lock.iter_users_except(&incoming_user_id) {
-            for (codec_type, tx, _) in room_lock
-                .get_tracks_transmitters(&existing_user.id)
-                .unwrap_or(&Arc::new(Mutex::new(Vec::new())))
-                .lock()
-                .await
-                .iter()
-            {
-                let output_track = SelectiveForwardingUnit::create_output_track(
-                    peer_connection.clone(),
-                    existing_user.id,
-                    *codec_type,
-                )
-                .await;
-                SelectiveForwardingUnit::start_output_track_writing(output_track, tx.subscribe());
-                info!(
-                    "Track of user={} and kind={} has been routed to user={}",
-                    existing_user.id, codec_type, incoming_user_id
-                );
-            }
-        }
-    }
-
-    async fn create_peer_connection(
-        ws_sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
-        incoming_user_id: Uuid,
-        description: RTCSessionDescription,
-        room: Arc<Mutex<Room>>,
-    ) -> Arc<RTCPeerConnection> {
-        let api = create_webrtc_api().expect("Cannot create WebRTC API");
-        let config = RTCConfiguration {
-            ice_servers: vec![RTCIceServer {
-                urls: vec![
-                    // "stun:stun.l.google.com:19302".to_owned(),
-                    "stun:turn-server:3478".to_owned(),
-                ],
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        let peer_connection = Arc::new(
-            api.new_peer_connection(config)
-                .await
-                .expect("Cannot create peer connection"),
+        info!(
+            "Cleaned up stale receivers for participant={}",
+            participant_id
         );
-        peer_connection
-            .set_remote_description(description)
-            .await
-            .expect(
-                format!(
-                    "Cannot set remote description for user={}",
-                    incoming_user_id
-                )
-                .as_str(),
-            );
-
-        peer_connection.on_track(SelectiveForwardingUnit::create_on_track_handler(
-            incoming_user_id,
-            peer_connection.clone(),
-            room.clone(),
-        ));
-        peer_connection.on_peer_connection_state_change(
-            SelectiveForwardingUnit::create_on_peer_state_changed_handler(
-                incoming_user_id,
-                room.clone(),
-            ),
-        );
-        peer_connection.on_ice_candidate(SelectiveForwardingUnit::create_on_ice_candidate_handler(
-            incoming_user_id,
-            ws_sender.clone(),
-        ));
-
-        let sender2 = ws_sender.clone();
-        let peer_connection2 = peer_connection.clone();
-        peer_connection.on_negotiation_needed(Box::new(move || {
-            info!("Negotiation is needed for user={}", incoming_user_id);
-
-            let sender3 = sender2.clone();
-            let peer_connection3 = peer_connection2.clone();
-            tokio::spawn(async move {
-                SelectiveForwardingUnit::resignal(
-                    sender3,
-                    incoming_user_id,
-                    peer_connection3.clone(),
-                )
-                .await;
-                SelectiveForwardingUnit::cleanup_stale_receivers(
-                    peer_connection3,
-                    incoming_user_id,
-                )
-                .await;
-            });
-
-            Box::pin(async {})
-        }));
-
-        let answer = peer_connection
-            .create_answer(Option::None)
-            .await
-            .expect("Cannot create answer");
-        peer_connection
-            .set_local_description(answer.clone())
-            .await
-            .expect("Cannot set local description");
-
-        ws_sender
-            .lock()
-            .await
-            .send(Message::Text(
-                serde_json::to_string(&SelectiveForwardingUnit::create_answer_message(
-                    incoming_user_id,
-                    answer,
-                ))
-                .expect("Cannot convert message to JSON"),
-            ))
-            .await
-            .expect("Cannot send WebSocket message");
-        info!("Sent answer to user={}", incoming_user_id);
-
-        let mut gather_complete = peer_connection.gathering_complete_promise().await;
-
-        let _ = gather_complete.recv().await;
-
-        room.lock().await.add_user(
-            incoming_user_id,
-            User::new(incoming_user_id, peer_connection.clone(), ws_sender.clone()),
-        );
-
-        SelectiveForwardingUnit::add_existing_tracks(
-            peer_connection.clone(),
-            incoming_user_id,
-            room,
-        )
-        .await;
-
-        info!("Peer connection created for user={}", incoming_user_id);
-        peer_connection
     }
 }
