@@ -15,12 +15,6 @@ use webrtc::{
     rtp_transceiver::rtp_codec::{RTCRtpCodecCapability, RTCRtpCodecParameters, RTPCodecType},
 };
 
-pub type OnAnswerCreatedHdlrFn = Box<
-    dyn FnMut(RTCSessionDescription) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>
-        + Send
-        + Sync,
->;
-
 pub struct WebRTCFactory {
     api: API,
     config: RTCConfiguration,

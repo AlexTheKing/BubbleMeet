@@ -1,5 +1,6 @@
 [workspace]
 members = [
-    "bubble-meet"
+    "bubble-meet", 
+    "bubble-meet-ml"
 ]
 resolver = "2"
