@@ -1,0 +1,30 @@
+# Python environment
+python_env/
+python_env.tar.gz
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Test audio files (optional)
+*.wav
+*.mp3
+*.flac
+

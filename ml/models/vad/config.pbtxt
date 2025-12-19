@@ -1,0 +1,33 @@
+name: "vad"
+backend: "python"
+max_batch_size: 0
+
+input [
+  {
+    name: "audio"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  }
+]
+output [
+  {
+    name: "speech_timestamps"
+    data_type: TYPE_INT32
+    dims: [ -1, 2 ]
+  }
+]
+
+# For local testing: use CPU
+# For production change to KIND_GPU
+instance_group [
+  {
+    count: 1
+    kind: KIND_CPU
+  }
+]
+
+parameters: {
+  key: "EXECUTION_ENV_PATH"
+  value: {string_value: "/env/python_env.tar.gz"}
+}
+

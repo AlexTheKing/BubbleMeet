@@ -1,0 +1,31 @@
+FROM rust:1.90 AS builder
+
+RUN apt-get update && \
+    apt-get install -y cmake curl && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /tmp
+RUN curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v25.3/protoc-25.3-linux-aarch_64.zip && \
+    unzip protoc-25.3-linux-aarch_64.zip -d /usr/local && \
+    rm protoc-25.3-linux-aarch_64.zip
+
+ENV PATH="/usr/local/protoc-25.3-linux-aarch_64/bin:$PATH"
+
+WORKDIR /src
+COPY backend/src backend/src
+COPY triton-api-rs triton-api-rs
+COPY backend/Cargo.toml backend/Cargo.toml
+COPY backend/Cargo.lock backend/Cargo.lock
+RUN cargo install --path ./backend
+
+FROM debian:bookworm-slim
+# RUN apt-get update && apt-get install -y extra-runtime-dependencies && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /usr/local/cargo/bin/bubble-meet-backend /usr/local/bin/bubble-meet-backend
+
+ENV LOG4RS_CONFIG_PATH=/etc/backend/resources/log4rs.yml
+COPY backend/resources /etc/backend/resources
+
+ENV SIGNALING_SERVER_HOST=0.0.0.0
+ENV SIGNALING_SERVER_PORT=8080
+
+CMD ["bubble-meet-backend"]

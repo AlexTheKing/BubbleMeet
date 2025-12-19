@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "bubble-meet", 
-    "bubble-meet-ml"
+    "backend", "triton-api-rs"
 ]
 resolver = "2"
