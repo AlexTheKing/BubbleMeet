@@ -1,0 +1,10 @@
+name: signaling_api
+version: 0.0.1
+publish_to: none
+
+environment:
+    sdk: ^3.12.1
+
+dependencies:
+  web_socket_channel: ^3.0.3
+  webrtc_interface: ^1.5.1

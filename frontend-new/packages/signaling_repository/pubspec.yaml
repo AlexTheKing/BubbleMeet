@@ -1,0 +1,10 @@
+name: signaling_repository
+version: 0.0.1
+publish_to: none
+
+environment:
+    sdk: ^3.12.1
+
+dependencies:
+  signaling_api:
+    path: ../signaling_api
